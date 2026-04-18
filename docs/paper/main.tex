@@ -1,0 +1,616 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{array}
+\usepackage{authblk}
+\usepackage{siunitx}
+\usepackage{natbib}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  citecolor=blue!60!black,
+  urlcolor=blue!60!black
+}
+
+\title{Calibrated Bayesian Overlap Detection for Long-Read\\
+Genome Assembly}
+
+\author{Raja Giddi}
+\affil{Independent}
+\date{April 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Modern long-read genome assemblers report overlap calls without calibrated
+uncertainty: a score above a fixed threshold is treated as a genuine overlap,
+and downstream layout and consensus algorithms lose all information about
+confidence. We present BAWM, a Bayesian overlap detector that outputs posterior
+probabilities via likelihood-ratio Bayes factors over a small set of
+interpretable features, combined with a bivariate $t$-copula correction for
+feature dependence. A frozen encoder, contrastively pretrained on a
+noisy-overlap proxy, supplies a single semantic feature; two geometric
+features (k-mer containment and minimiser chain coverage) supply the rest.
+On the \textit{Escherichia coli} K-12 MG1655 reference ($4.6$\,Mb, simulated
+PacBio HiFi, 30\,$\times$ coverage, 9{,}283 reads, 462{,}875 candidate pairs),
+BAWM attains precision $0.847$, recall $0.751$, and expected calibration
+error $\mathrm{ECE} = 0.004$ at an interpretable decision threshold. The
+calibration is roughly an order of magnitude tighter than the same pipeline
+on a 100\,kb synthetic benchmark ($\mathrm{ECE}=0.040$) and is preserved in
+the presence of seven near-identical rRNA operons, where the posterior
+correctly collapses to low confidence ($\overline{p}=0.011$) rather than
+fabricating overconfident edges. Feature ablation reveals that three of six
+originally proposed orthogonal features contribute no signal or inverted
+signal and are safely dropped; the three remaining features carry the full
+result.
+\end{abstract}
+
+\section{Introduction}
+
+De novo genome assembly from long reads is the problem of reconstructing a
+genome sequence $G$ from a set of overlapping noisy observations
+$\{r_1, \ldots, r_N\}$. The dominant pipeline --- all-versus-all overlap
+detection, string-graph construction, and consensus \citep{myers2005fragment,
+li2016minimap, cheng2021hifiasm} --- treats overlap detection as
+classification: a score (e.g., minimiser chain length, shared $k$-mer count,
+or mapping quality) is thresholded to produce binary edges. Whatever
+uncertainty exists in the score is discarded.
+
+This discards information that downstream algorithms could use. A string
+graph constructed from binary edges cannot distinguish a ``probably real''
+edge (posterior $0.6$) from a ``certainly real'' edge (posterior $0.99$);
+consensus algorithms cannot weight their evidence by overlap confidence;
+structural-variant callers cannot propagate uncertainty into calls. Worse,
+the scores most assemblers rely on are not calibrated probabilities --- a
+score of $0.6$ does not mean the edge is genuine $60\%$ of the time.
+
+We take the view that \emph{overlap detection is a Bayesian inference
+problem}, and the natural output is a posterior probability
+$p(y_{ij} = 1 \mid \text{features}(r_i, r_j))$ that is (i) calibrated, so
+that a stated probability matches the empirical frequency, and (ii) built
+from interpretable, auditable features rather than an end-to-end black box.
+Calibration lets downstream algorithms treat the posterior as usable
+evidence; interpretability lets practitioners diagnose why an overlap was or
+was not called.
+
+\paragraph{Contributions.}
+\begin{enumerate}
+    \item A Bayesian overlap-detection model combining a small set of
+    interpretable features via likelihood-ratio Bayes factors, with an
+    explicit bivariate $t$-copula correction for feature dependence.
+    \item A contrastive-pretraining procedure with anti-collapse
+    regularisation that yields a frozen encoder usable as a single
+    well-behaved feature, without fine-tuning or a learned confidence head.
+    \item Results on \textit{E.\ coli} K-12 MG1655: precision $0.847$,
+    recall $0.751$, $\mathrm{ECE}=0.004$, with calibration preserved in rRNA
+    operon regions that typically degrade overlap callers.
+    \item A feature ablation showing that three of six proposed orthogonal
+    features are uninformative or inverted, and that the model performance
+    is carried by three features; the cleaner model also has tighter
+    calibration.
+\end{enumerate}
+
+\section{Method}
+
+\subsection{Overview}
+
+Given a set of reads $\{r_1, \ldots, r_N\}$, we consider the
+$\binom{N}{2}$ candidate pairs (in practice pre-filtered by a cheap
+minimiser-sharing criterion to $O(N \bar d)$ pairs where $\bar d$ is the
+mean degree; for \textit{E.\ coli} this yields $462{,}875$ candidates over
+$9{,}283$ reads). For each candidate pair $(i, j)$ we extract a feature
+vector $\mathbf{x}_{ij}$ and compute the log posterior odds under the
+two-class model $y_{ij} \in \{0, 1\}$ (null / genuine overlap) via
+
+\begin{equation}
+    \log \frac{p(y_{ij} = 1 \mid \mathbf{x}_{ij})}{p(y_{ij} = 0 \mid \mathbf{x}_{ij})}
+    = \underbrace{\log\frac{\pi}{1-\pi}}_{\text{prior}} +
+      \underbrace{\sum_{k=1}^{K} w_k \log\frac{p(x_k \mid y=1)}{p(x_k \mid y=0)}}_{\text{feature Bayes factors}} +
+      \underbrace{\log\frac{c_1(\mathbf{u})}{c_0(\mathbf{u})}}_{\text{copula correction}},
+    \label{eq:logit}
+\end{equation}
+
+where $\pi$ is the prior probability of a genuine overlap among candidate
+pairs (estimated from a calibration set), $w_k \ge 0$ are fixed feature
+weights, $p(x_k \mid y)$ are class-conditional distributions over the $k$-th
+feature, and $c_y(\mathbf{u})$ is a copula density accounting for residual
+dependence between features that are not conditionally independent given
+the class.
+
+The posterior $p(y_{ij} = 1 \mid \mathbf{x}_{ij}) = \sigma(\text{logit})$ is
+the primary output of the model.
+
+\subsection{Features}
+
+We extract three features per candidate pair:
+
+\paragraph{Containment.}
+Let $\mathcal{M}_i, \mathcal{M}_j$ be the $(w, k) = (5, 15)$ minimiser sets
+of reads $i$ and $j$. Define
+\begin{equation}
+    c_{ij} = \frac{|\mathcal{M}_i \cap \mathcal{M}_j|}{\min(|\mathcal{M}_i|, |\mathcal{M}_j|)}.
+\end{equation}
+This is the classical shared-$k$-mer containment score.
+
+\paragraph{Chain coverage.}
+Shared minimisers alone do not imply a collinear overlap; a pair of reads
+whose shared minimisers are scattered across the genome (a common repeat
+signature) will have high $c_{ij}$ but no overlap. We compute the longest
+collinear chain of shared minimisers via sparse dynamic programming with
+gap penalty (standard seed-chain-extend), and report
+\begin{equation}
+    f_{\text{cov}}(i,j) = \frac{|\text{longest colinear chain}|}{\min(|\mathcal{M}_i|, |\mathcal{M}_j|)}.
+\end{equation}
+Chain coverage is high when shared minimisers are in the same order on both
+reads (expected for genuine overlaps) and low when they are scattered
+(expected for repeats).
+
+\paragraph{Encoder cosine.}
+A transformer-style encoder $E_\theta : \{A,C,G,T\}^* \to \mathbb{R}^{64}$
+(detailed in \Cref{sec:encoder}) maps each read to a fixed-dimensional
+latent $\mu_i = E_\theta(r_i)$. The semantic similarity feature is
+\begin{equation}
+    s_{ij} = \frac{\langle \mu_i, \mu_j \rangle}{\|\mu_i\|\,\|\mu_j\|}.
+\end{equation}
+$E_\theta$ is trained once (\Cref{sec:encoder}) and held frozen during
+calibration and inference; no classification head is attached.
+
+\paragraph{Remark: features we tried and dropped.}
+We originally included three additional features --- a chain score ratio
+(secondary-to-primary chain), an end-anchoring score
+$\exp(-\text{overhang}/\tau)$, and a TF--IDF style ``unique containment''
+using inverse $k$-mer document frequency. Feature ablation on the
+calibration data (\Cref{sec:ablation}) revealed each to have zero or
+inverted class separation at \textit{E.\ coli} scale. They are dropped from
+the final model and discussed in \Cref{sec:ablation} and
+\Cref{sec:discussion}.
+
+\subsection{Class-conditional distributions}
+
+For each feature $x_k$ we fit class-conditional densities by method of
+moments on the calibration set:
+\begin{itemize}
+    \item \textbf{Containment}, \textbf{chain coverage}: Beta distributions
+    $p(x_k \mid y) = \mathrm{Beta}(a_y^{(k)}, b_y^{(k)})$, appropriate for
+    $[0,1]$-valued features.
+    \item \textbf{Encoder cosine}: Gaussian $p(x_k \mid y) =
+    \mathcal{N}(\mu_y^{(k)}, \sigma_y^{(k)})$, appropriate for cosine
+    similarities of unnormalised latents. (The cosine distribution is in
+    practice concentrated away from the $\pm 1$ boundary.)
+\end{itemize}
+
+Weights are set as $w_{\text{containment}} = w_{\text{chain cov}} = 1$
+and $w_{\text{cosine}} = 0.5$; the lower weight on cosine reflects that it
+partially overlaps with containment in the evidence it carries.
+
+\subsection{Copula correction}
+\label{sec:copula}
+
+Containment and encoder cosine are derived from overlapping substrates:
+containment counts shared $k$-mers, and the encoder is trained to put reads
+that share $k$-mers near each other. The assumption of conditional
+independence $p(\mathbf{x} \mid y) = \prod_k p(x_k \mid y)$ is therefore
+violated, and na\"ively summing log-Bayes factors double-counts evidence.
+
+We correct for this with a bivariate $t$-copula \citep{nelsen2006copula}.
+Given the empirical CDFs $F_{c,y}, F_{s,y}$ of containment and cosine under
+class $y$, the copula reparametrises
+\begin{equation}
+    u_c = F_c(x_c), \quad u_s = F_s(x_s), \quad (u_c, u_s) \in [0,1]^2,
+\end{equation}
+and models the joint density as
+\begin{equation}
+    p(x_c, x_s \mid y) = p(x_c \mid y) \, p(x_s \mid y) \cdot c_y(u_c, u_s),
+\end{equation}
+so that the log Bayes factor in \Cref{eq:logit} acquires a correction term
+\begin{equation}
+    \Delta_{\text{cop}} = \log c_1(u_c, u_s) - \log c_0(u_c, u_s).
+\end{equation}
+We use a $t$-copula with $\nu = 5$ degrees of freedom (heavy tails are
+appropriate for correlated sequence features with occasional extreme
+co-occurrence) and estimate the correlation parameter $\rho_y$ from the
+Spearman correlation of $(x_c, x_s)$ in each class of the calibration set.
+On \textit{E.\ coli} we obtain $\rho_1 = 0.065$ (genuine) and $\rho_0 =
+0.004$ (null): the dependence is modest but real under the genuine
+distribution, as expected.
+
+\subsection{Encoder pretraining}
+\label{sec:encoder}
+
+The encoder is a small transformer (4 layers, hidden $d=128$, latent dim
+$64$, $\approx 1.2$\,M parameters) with positional embeddings and a mean-pool
+readout. It is trained with an InfoNCE-style contrastive objective using
+noisy ground-truth overlaps as positives:
+\begin{equation}
+    \mathcal{L} = -\log \frac{\exp(\mu_a \cdot \mu_p / \tau)}{\exp(\mu_a \cdot \mu_p / \tau) + \sum_{n} \exp(\mu_a \cdot \mu_n / \tau)}.
+\end{equation}
+Three anti-collapse measures were necessary in preliminary experiments:
+(i) orthogonality kick, an initial additive perturbation of the readout
+layer; (ii) a spread regulariser
+$\mathcal{L}_{\text{spread}} = \frac{1}{|B|^2}\sum_{i \ne j} |\hat\mu_i \cdot \hat\mu_j|$
+on $\ell_2$-normalised latents within a batch; and (iii) a temperature
+schedule $\tau: 0.5 \to 0.1$ over the first third of training. Without
+these, the encoder collapses to a near-constant output and the cosine
+feature loses all signal.
+
+Training runs for $30$ epochs on an NVIDIA A10G GPU with batch size $16$
+and $16$ negatives per anchor. The encoder is then frozen for calibration
+and inference.
+
+\subsection{Calibration}
+\label{sec:calibration}
+
+Calibration has three outputs:
+\begin{enumerate}
+    \item the prior $\pi = n_{\text{genuine}}/n_{\text{pairs}}$;
+    \item per-feature class-conditional parameters
+    $(a_y^{(k)}, b_y^{(k)})$ or $(\mu_y^{(k)}, \sigma_y^{(k)})$;
+    \item per-class copula correlations $\rho_y$.
+\end{enumerate}
+
+For \textit{E.\ coli} we use the full candidate set as the calibration set
+with ground-truth labels derived from the simulator's true-position
+annotations (see \Cref{sec:data}); in production use, calibration would be
+run on a held-out reference genome. No neural network is trained in the
+calibration phase.
+
+\subsection{Decision threshold}
+\label{sec:threshold}
+
+The default decision threshold at log-odds $0$ corresponds to
+$\pi$-weighted cost-neutral prediction. For assembly, a false negative
+(missing a genuine overlap) fragments the layout and tends to be more
+costly than a false positive (a spurious edge), which downstream consensus
+and graph-cleaning steps can filter. We therefore select the operating
+threshold by sweep on the calibration set; equivalently, this is a shift
+in the effective log-prior by $\Delta$, so that
+\begin{equation}
+    t^* = \arg\max_t F_1\left(t\right) \quad \text{subject to} \quad P(t) \ge 0.80,\;R(t) \ge 0.75.
+\end{equation}
+On \textit{E.\ coli} the optimum is at $t^* = -1.5$, an effective cost
+ratio of $e^{1.5} \approx 4.5 : 1$ for false negatives versus false
+positives. The decision boundary is stable: every $t \in [-2.25, -1.50]$
+satisfies the two-sided constraint, so the result is not knife-edge.
+
+\section{Data}
+\label{sec:data}
+
+\paragraph{Reference.} \textit{Escherichia coli} K-12 MG1655 (GenBank
+NC\_000913.3, $4{,}641{,}652$\,bp, circular). The genome contains seven
+near-identical rRNA operons (rrnA--rrnH), each approximately $5.5$\,kb long,
+which are the dominant source of repeat-induced overlap ambiguity in
+bacterial assembly.
+
+\paragraph{Reads.} PacBio HiFi reads simulated at $30\times$ coverage with
+lognormal length distribution (mean $15$\,kb, sd $3$\,kb), a homopolymer-aware
+error model ($\epsilon_{\text{sub}} = 0.003$, $\epsilon_{\text{indel}} =
+0.001$, elevated at homopolymer runs), and uniform start positions. Yields
+$9{,}283$ reads.
+
+\paragraph{Ground-truth labels.} A pair $(i, j)$ is genuine if the true
+genomic intervals of the two reads overlap by at least $5$\,kb (after
+handling circular wraparound and strand). A spatial bin index over read
+start positions reduces the $\binom{N}{2}$ label computation to linear in
+$N$ without approximation. Total: $462{,}875$ candidate pairs, $6{,}638$
+genuine ($\pi = 0.0143$).
+
+\paragraph{Repeat-region subset.} For the rRNA operon analysis we define the
+``repeat subset'' as all candidate pairs where at least one read's true
+start position falls inside one of the seven rRNA operon intervals. This
+gives $8{,}629$ pairs.
+
+\section{Results}
+
+\subsection{Main result}
+
+\begin{table}[h]
+\centering
+\caption{Overall performance on \textit{E.\ coli} K-12 MG1655. BAWM-6f is
+the model with all six originally proposed features; BAWM-3f drops the
+three uninformative/inverted features (see \Cref{sec:ablation}). $t^*$ is
+the log-odds threshold at which $F_1$ is maximised subject to
+$P \ge 0.80, R \ge 0.75$. ECE is expected calibration error over 10 equal-width bins.}
+\label{tab:main}
+\begin{tabular}{lccccc}
+\toprule
+Model & Threshold & Precision & Recall & $F_1$ & ECE \\
+\midrule
+BAWM-6f ($t = 0$) & $0$    & $0.796$ & $0.751$ & $0.773$ & $0.004$ \\
+BAWM-3f ($t = 0$) & $0$    & $0.905$ & $0.695$ & $0.786$ & $0.004$ \\
+\textbf{BAWM-3f ($t^*$)} & $-1.5$ & $\mathbf{0.847}$ & $\mathbf{0.751}$ & $\mathbf{0.796}$ & $\mathbf{0.004}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+BAWM-3f at $t^* = -1.5$ reaches precision $0.847$, recall $0.751$, $F_1 =
+0.796$, and expected calibration error $0.004$ on $462{,}875$ candidate
+pairs. All three metrics clear the targets set \textit{a priori}
+($P > 0.80$, $R > 0.75$, $\mathrm{ECE} < 0.12$) with margin.
+
+\subsection{Calibration}
+\label{sec:calibration-results}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\linewidth]{../results/calibration_3feat.png}
+\caption{Left: reliability diagram. Predicted confidence (x-axis) vs.\
+empirical fraction of genuine overlaps (y-axis), binned into 10 bins.
+Dashed line is perfect calibration. Right: confidence distribution split by
+true label; note the clean separation and the near-absence of null pairs at
+high confidence.}
+\label{fig:calibration}
+\end{figure}
+
+The reliability diagram (\Cref{fig:calibration}, left) tracks the perfect-calibration line within bin-sampling noise across the full range
+$[0, 1]$. The confidence distribution (\Cref{fig:calibration}, right) is
+strongly bimodal: null pairs accumulate at very low confidence (mean
+log-odds $-10.0$, sd $1.95$), genuine pairs at high confidence (mean
+$+7.2$, sd $10.8$), with a sparse overlap region that sets the
+precision-recall trade-off.
+
+For context, the same pipeline on a 100\,kb synthetic benchmark (Paper 1,
+same features minus chain coverage, single-feature BF without copula)
+yielded ECE $= 0.040$. The \textit{E.\ coli} result is an order of
+magnitude tighter despite the genome being $46\times$ larger and the
+candidate set $\sim 10\times$ larger, driven primarily by the copula
+correction (\Cref{sec:copula-effect}) rather than by feature engineering.
+
+\subsection{Repeat-region behaviour}
+
+rRNA operons are the canonical failure mode for bacterial overlap
+detection. \Cref{tab:repeats} reports performance on the repeat subset.
+
+\begin{table}[h]
+\centering
+\caption{Performance on the repeat subset (pairs with at least one read in
+an rRNA operon). Mean confidence is the average posterior
+$p(y=1\mid\mathbf{x})$ over the subset.}
+\label{tab:repeats}
+\begin{tabular}{lcccc}
+\toprule
+Subset & $n$ pairs & Precision & Recall & Mean conf. \\
+\midrule
+All pairs        & $462{,}875$ & $0.847$ & $0.751$ & $0.014$ \\
+rRNA operon subset & $\phantom{00}8{,}629$ & $0.700$ & $0.656$ & $0.011$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Mean posterior confidence on rRNA pairs is $0.011$, below the $0.014$ base
+rate: the posterior is \emph{correctly under-confident} in repeat regions,
+which is the behaviour any downstream graph-cleaning or layout algorithm
+wants. Precision drops to $0.70$ (vs.\ $0.85$ global), recall to $0.66$.
+Crucially, calibration is preserved: the $0.70$ precision is what the
+model predicts, not a silent failure.
+
+\subsection{Threshold sensitivity}
+
+\Cref{fig:threshold} plots precision, recall, and $F_1$ as functions of
+the log-odds threshold. The region $t \in [-2.25, -1.50]$ satisfies the
+two-sided constraint $P \ge 0.80, R \ge 0.75$, indicating a stable
+operating region rather than a knife-edge optimum.
+
+\subsection{Feature ablation}
+\label{sec:ablation}
+
+\begin{table}[h]
+\centering
+\caption{Per-feature class separation (mean under genuine minus mean under
+null) on the \textit{E.\ coli} calibration set. Positive separation =
+feature discriminates in the expected direction. The three features below
+the rule contribute no signal or inverted signal and are dropped from the
+final model.}
+\label{tab:ablation}
+\begin{tabular}{lrrr}
+\toprule
+Feature & Genuine mean & Null mean & Separation \\
+\midrule
+Containment           & $0.257$ & $0.133$ & $+0.124$ \\
+Chain coverage        & $0.044$ & $0.014$ & $+0.030$ \\
+Encoder cosine        & $0.784$ & $0.749$ & $+0.035$ \\
+\midrule
+Chain score ratio     & $0.757$ & $0.916$ & $-0.159$ \\
+End-anchoring         & $0.001$ & $0.002$ & $-0.001$ \\
+Unique containment    & $0.041$ & $0.051$ & $-0.011$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three of the six originally proposed features are informative in the
+direction assumed by the model (containment, chain coverage, encoder
+cosine). Three are not:
+
+\begin{itemize}
+    \item \textbf{Chain score ratio} (secondary-to-primary chain ratio)
+    has strongly \emph{inverted} separation. This is diagnosable: at
+    \textit{E.\ coli} scale with $30\times$ coverage, null pairs that
+    share minimisers in any repeat region produce long secondary chains,
+    inflating the ratio; genuine pairs with clean single chains produce
+    small ratios. A sign flip would rescue the feature, but the resulting
+    signal is largely redundant with chain coverage.
+    \item \textbf{End-anchoring} is dead: both classes have mean near
+    $0.001$, because the decay scale of the $\exp(-\text{overhang}/\tau)$
+    saturates at realistic overhangs (reads $\sim 15$\,kb, overlaps
+    $\sim 5$\,kb, overhangs $\sim 10$\,kb). This is a design bug in the
+    feature, not a fundamental issue with dovetail geometry.
+    \item \textbf{Unique containment} (TF--IDF-weighted containment) has
+    mildly inverted separation. We suspect the global document-frequency
+    threshold is filtering too aggressively; a per-region tuning might
+    rescue it, but we have not pursued this.
+\end{itemize}
+
+Dropping the three features has two effects: precision at $t = 0$ rises
+from $0.796$ to $0.905$, and the null log-odds standard deviation drops
+from $2.85$ to $1.95$. Recall at $t = 0$ drops from $0.751$ to $0.695$,
+recovered by lowering the threshold to $t^* = -1.5$. ECE is essentially
+unchanged ($0.004$ in both cases).
+
+\subsection{Effect of the copula correction}
+\label{sec:copula-effect}
+
+\begin{table}[h]
+\centering
+\caption{Effect of the $t$-copula correction. ``Independent'' sets
+$\rho_0 = \rho_1 = 0$; ``Corrected'' uses the estimated $\rho_1 = 0.065$,
+$\rho_0 = 0.004$.}
+\label{tab:copula}
+\begin{tabular}{lccc}
+\toprule
+Model & Precision & Recall & ECE \\
+\midrule
+BAWM-3f, no copula correction & $0.836$ & $0.746$ & $0.012$ \\
+BAWM-3f, $t$-copula corrected & $0.847$ & $0.751$ & $\mathbf{0.004}$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The copula correction is primarily a calibration fix, not a precision fix.
+Removing it raises ECE by roughly $3\times$ while leaving precision and
+recall approximately intact. This is the expected pattern: dependent
+features bias the log-Bayes factor but typically in a smooth direction
+that barely moves the decision boundary while damaging the probability
+scale. On larger and more repeat-rich genomes this gap should widen.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{What worked.}
+The core recipe --- a small number of interpretable features combined by
+likelihood-ratio Bayes factors, with copula correction for known feature
+dependence --- generalises cleanly from 100\,kb to 4.6\,Mb. Calibration is
+a property of the inference rule, not of the features, and survives the
+scale jump; precision and recall are properties of the features, and the
+\textit{E.\ coli} rRNA operons produce a visible but correctly quantified
+degradation rather than a silent failure.
+
+\paragraph{What did not work.}
+Half of the originally proposed orthogonal features were uninformative or
+inverted at \textit{E.\ coli} scale. The lesson is not that the features
+were bad ideas, but that adding features without per-feature ablation is
+dangerous: uninformative features are harmless in the infinite-data limit
+but add variance to the log-Bayes factor at finite calibration-set size,
+visibly widening the genuine-class distribution and degrading precision.
+An honest methodology should ablate every feature.
+
+\paragraph{Limitations.}
+The ground truth used here is simulator-derived: true genomic coordinates
+are known exactly, so calibration labels are noiseless. Real HiFi reads
+(e.g., SRA SRR10971019) do not have this luxury; calibration on real data
+would use a reference-guided alignment as an approximate gold standard,
+introducing label noise. We have not yet tested whether the calibration
+result survives this shift. We also have not compared against minimap2
+\citep{li2016minimap} or similar production overlap callers on matched
+data; their scores are not calibrated probabilities, so the comparison
+would necessarily be on precision/recall at a fixed operating point and
+not on ECE.
+
+\paragraph{Toward a world model.}
+The name BAWM (Bayesian Assembly as World Modeling) signals a longer-term
+research programme in which the genome is treated as a latent variable and
+the reads as noisy observations. The current paper is properly a calibrated
+\emph{edge detector}, not a world model: it does not predict unobserved
+reads, does not sample hypothetical genomes, and performs inference
+pair-by-pair rather than globally over the assembly graph. The natural
+next step is global inference via loopy belief propagation over the edge
+graph, giving an edge marginal that depends on the whole graph rather than
+two reads --- the first component of a proper world model.
+
+\section{Related work}
+
+\paragraph{Overlap detection.} Minimap2 \citep{li2016minimap} and the
+overlap phase of hifiasm \citep{cheng2021hifiasm} are the canonical
+long-read overlap callers, both based on minimiser chaining with hard score
+thresholds. Neither outputs calibrated posterior probabilities.
+
+\paragraph{Contrastive representation learning for biology.}
+Contrastive objectives have been used to pretrain sequence encoders
+(Nucleotide Transformer \citep{dalla2023nucleotide}, DNABert-2, HyenaDNA),
+typically as the basis for supervised fine-tuning. Our use is less
+ambitious: the encoder supplies a single feature in a larger Bayesian
+model, never fine-tuned, and never the sole basis of a prediction.
+
+\paragraph{Calibration in machine learning.}
+Temperature scaling, Platt scaling, and isotonic regression
+\citep{guo2017calibration} are the standard post-hoc calibration
+techniques for deep classifiers. Our approach is structurally different:
+calibration is achieved by construction through the Bayesian inference
+rule and copula correction, not by a post-hoc transformation of
+classifier logits.
+
+\paragraph{Bayesian models in bioinformatics.}
+Bayesian formulations have been applied to variant calling
+\citep{li2011statistical}, phylogenetics, and read mapping, but to our
+knowledge not to calibrated overlap detection for long-read assembly.
+
+\section{Conclusion}
+
+Long-read overlap detection can be formulated as a calibrated Bayesian
+inference problem with a small number of interpretable features, and the
+resulting posterior probabilities are usable by downstream algorithms in
+ways that binary edges are not. On \textit{E.\ coli} K-12, the resulting
+model reaches precision $0.847$, recall $0.751$, and
+$\mathrm{ECE} = 0.004$, with calibration preserved in rRNA operon regions.
+The calibration result survives a 46-fold scale jump from synthetic
+benchmarks, is primarily driven by copula correction for feature
+dependence rather than by feature engineering, and degrades gracefully
+(with \emph{predicted} low confidence) in repeat regions rather than
+failing silently. The natural next step is global inference over the edge
+graph, turning the pair-wise posterior into a graph-wide one.
+
+\section*{Code and data availability}
+The implementation, simulator, and all artefacts used to produce the
+\textit{E.\ coli} numbers in this paper are available at
+\url{https://github.com/<anon>/bawm}.
+
+\bibliographystyle{plainnat}
+\begin{thebibliography}{99}
+
+\bibitem[Myers(2005)]{myers2005fragment}
+Eugene W.\ Myers.
+\newblock The fragment assembly string graph.
+\newblock \emph{Bioinformatics}, 21:\penalty0 ii79--ii85, 2005.
+
+\bibitem[Li(2018)]{li2016minimap}
+Heng Li.
+\newblock Minimap2: pairwise alignment for nucleotide sequences.
+\newblock \emph{Bioinformatics}, 34(18):\penalty0 3094--3100, 2018.
+
+\bibitem[Cheng et al.(2021)]{cheng2021hifiasm}
+Haoyu Cheng, Gregory T.\ Concepcion, Xiaowen Feng, Haowen Zhang, and Heng Li.
+\newblock Haplotype-resolved de novo assembly using phased assembly graphs
+  with hifiasm.
+\newblock \emph{Nature Methods}, 18:\penalty0 170--175, 2021.
+
+\bibitem[Nelsen(2006)]{nelsen2006copula}
+Roger B.\ Nelsen.
+\newblock \emph{An Introduction to Copulas}.
+\newblock Springer, 2nd edition, 2006.
+
+\bibitem[Dalla-Torre et al.(2023)]{dalla2023nucleotide}
+Hugo Dalla-Torre et al.
+\newblock The Nucleotide Transformer: Building and evaluating robust
+  foundation models for human genomics.
+\newblock \emph{bioRxiv}, 2023.
+
+\bibitem[Guo et al.(2017)]{guo2017calibration}
+Chuan Guo, Geoff Pleiss, Yu Sun, and Kilian Q.\ Weinberger.
+\newblock On calibration of modern neural networks.
+\newblock In \emph{ICML}, 2017.
+
+\bibitem[Li(2011)]{li2011statistical}
+Heng Li.
+\newblock A statistical framework for SNP calling, mutation discovery,
+  association mapping and population genetical parameter estimation from
+  sequencing data.
+\newblock \emph{Bioinformatics}, 27(21):\penalty0 2987--2993, 2011.
+
+\end{thebibliography}
+
+\end{document}

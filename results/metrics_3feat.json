@@ -1,0 +1,18 @@
+{
+  "precision": 0.9053974484789009,
+  "recall": 0.6949382344079542,
+  "ece": 0.003619385911329855,
+  "n_edges": 462875,
+  "n_genuine": 6638,
+  "tp": 4613,
+  "fp": 482,
+  "fn": 2025,
+  "repeat_n_edges": 8629,
+  "repeat_conf_mean": 0.011250429165718374,
+  "repeat_precision": 0.7,
+  "repeat_recall": 0.65625,
+  "genuine_logit_mean": 7.220993640232204,
+  "genuine_logit_std": 10.830719356559898,
+  "null_logit_mean": -9.988955374445256,
+  "null_logit_std": 1.9477205062731116
+}

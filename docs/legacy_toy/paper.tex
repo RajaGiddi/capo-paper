@@ -1,0 +1,704 @@
+% BAWM Paper 1 — Bayesian Assembly as World Modeling
+% Proof of concept on synthetic genome
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ─────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{natbib}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+
+\bibliographystyle{plainnat}
+
+% ── Math shortcuts ───────────────────────────────────────
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\bz}{\mathbf{z}}
+\newcommand{\bmu}{\boldsymbol{\mu}}
+\newcommand{\Real}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\KL}{\mathrm{KL}}
+\newcommand{\BF}{\mathrm{BF}}
+\DeclareMathOperator{\logit}{logit}
+\DeclareMathOperator{\sigmoid}{\sigma}
+
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+
+% ══════════════════════════════════════════════════════════
+\title{Bayesian Assembly as World Modeling:\\
+  Calibrated Overlap Inference via Analytic Likelihood Ratios}
+
+\author{Raja Balachander Giddi}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ── Abstract ─────────────────────────────────────────────
+\begin{abstract}
+De novo genome assembly requires deciding which sequencing reads
+originate from overlapping genomic regions --- a problem traditionally
+solved by heuristic scoring functions that lack probabilistic
+interpretation.  We introduce \textbf{BAWM} (Bayesian Assembly as World
+Modeling), a framework that treats overlap detection as Bayesian
+posterior inference.  Each candidate overlap receives a posterior
+probability computed from analytic likelihood ratios under fitted
+genuine and null distributions, producing calibrated confidence
+estimates rather than arbitrary scores.
+
+On a 100\,kb synthetic genome with simulated PacBio HiFi reads, BAWM
+achieves precision 0.781, recall 0.751, and expected calibration error
+(ECE) 0.040 --- demonstrating that the posterior probabilities are
+faithful to empirical accuracy.  A contrastive-pretrained read encoder
+contributes complementary evidence that improves recall by 10
+percentage points without degrading calibration.  We identify the
+$k$-mer containment discriminability floor as a structural precision
+limit and discuss how overlap-length-conditional likelihoods and larger
+genomes can address it in future work.
+\end{abstract}
+
+% ══════════════════════════════════════════════════════════
+\section{Introduction}
+\label{sec:intro}
+
+De novo genome assembly reconstructs a genome sequence from
+overlapping sequencing reads without a reference.  The core
+computational task is \emph{overlap detection}: determining which
+pairs of reads originate from overlapping regions of the genome.
+Modern assemblers such as Hifiasm \citep{cheng2021hifiasm}, Canu
+\citep{koren2017canu}, and Flye \citep{kolmogorov2019assembly} solve
+this with heuristic scoring functions --- typically combining seed
+matches, alignment scores, and ad hoc filters.  These scores lack
+probabilistic semantics: a score of 150 does not mean anything about
+the probability that the overlap is real.
+
+This matters for two reasons.  First, downstream decisions (which
+overlaps to trust, when to merge contigs, how to handle repeats)
+require knowing \emph{how confident} the assembler is, not just its
+ranking.  Second, assembly is inherently sequential --- each new read
+updates a growing graph --- and Bayesian inference provides the natural
+framework for sequential evidence accumulation.
+
+We propose \textbf{BAWM} (Bayesian Assembly as World Modeling), a
+framework that reframes overlap detection as Bayesian posterior
+inference.  For each candidate read pair $(i,j)$, BAWM computes:
+\begin{equation}
+  \label{eq:posterior}
+  \logit\, p_{ij}
+    = \underbrace{\log \frac{p(\bx_{ij} \mid H_1)}{p(\bx_{ij} \mid H_0)}}_{\text{log Bayes factor}}
+    + \underbrace{\logit\, \pi}_{\text{prior}},
+\end{equation}
+where $H_1$ denotes a genuine overlap, $H_0$ denotes no overlap,
+$\bx_{ij}$ are observed features of the pair, and $\pi$ is the prior
+probability that a candidate pair is genuine.  The posterior
+$p_{ij} = \sigmoid(\logit\, p_{ij})$ is a calibrated probability
+estimate.
+
+The key contributions of this paper are:
+\begin{enumerate}
+  \item A \textbf{two-component Bayes factor model} with fitted
+    genuine and null distributions for $k$-mer containment and encoder
+    cosine similarity, producing analytic likelihood ratios
+    (\Cref{sec:model}).
+  \item A \textbf{contrastive-pretrained read encoder} that maps reads
+    to a latent space where overlapping reads have higher cosine
+    similarity, providing evidence complementary to $k$-mer features
+    (\Cref{sec:encoder}).
+  \item \textbf{Empirical calibration analysis} showing ECE of 0.040
+    on a synthetic genome, demonstrating that the posteriors are
+    faithful to empirical accuracy (\Cref{sec:results}).
+  \item \textbf{Identification of the containment discriminability
+    floor} as a structural precision limit, with clear implications for
+    future work (\Cref{sec:discussion}).
+\end{enumerate}
+
+
+% ══════════════════════════════════════════════════════════
+\section{Background}
+\label{sec:background}
+
+\subsection{Overlap Detection in Assembly}
+
+The overlap--layout--consensus (OLC) paradigm requires identifying all
+pairs of reads that share a sufficiently long genomic overlap.
+Practical assemblers use seeding strategies --- $k$-mers, minimizers,
+or sketch-based indices --- to generate candidate pairs, followed by
+alignment or scoring to filter true overlaps from noise.
+
+PacBio HiFi reads (15--25\,kb, $>$Q20 accuracy) enable long overlaps
+but introduce the challenge of distinguishing genuine overlaps from
+pairs that share sequence similarity due to genomic repeats.
+
+\subsection{Bayesian Overlap Scoring}
+
+Given observed features $\bx_{ij}$ for a candidate pair, the posterior
+probability of a genuine overlap is:
+\begin{equation}
+  p(H_1 \mid \bx_{ij})
+    = \frac{p(\bx_{ij} \mid H_1)\, \pi}
+           {p(\bx_{ij} \mid H_1)\, \pi + p(\bx_{ij} \mid H_0)\,(1-\pi)}.
+\end{equation}
+On the logit scale, this decomposes additively into log Bayes factor
+plus log prior odds (\Cref{eq:posterior}).  This decomposition is
+attractive because independent features contribute additively ---
+each new source of evidence simply adds its own log Bayes factor to
+the running logit.
+
+
+% ══════════════════════════════════════════════════════════
+\section{Model}
+\label{sec:model}
+
+BAWM processes reads sequentially, maintaining a probabilistic
+assembly graph $\mathcal{G} = (V, E)$ where nodes represent reads and
+edges carry posterior overlap probabilities.  For each incoming read,
+the system: (1) generates candidate overlaps via minimizer filtering,
+(2) ranks candidates by KL-symmetric distance in latent space, (3)
+computes per-edge posterior probabilities via analytic Bayes factors,
+and (4) updates the graph.
+
+\subsection{Candidate Generation}
+\label{sec:candidates}
+
+Each read sequence is converted to canonical $k$-mer tokens
+($k=11$, stride 5) via polynomial hashing into a vocabulary of size
+$V = 16{,}384$.  Minimizers (window $w=5$) are extracted and stored in
+an inverted index.  For a new read, all nodes sharing $\geq 2$
+minimizers form the initial candidate set.
+
+\subsection{Latent Space Ranking}
+
+A stochastic read encoder (\Cref{sec:encoder}) maps each read to a
+variational embedding $(\bmu_i, \log\boldsymbol{\sigma}^2_i) \in
+\Real^{d} \times \Real^{d}$ with $d = 64$.  Candidates are ranked by
+symmetrized KL divergence between their variational posteriors:
+\begin{equation}
+  \label{eq:kl-sym}
+  D_{\KL}^{\mathrm{sym}}(i, j)
+    = \frac{1}{2}\bigl[D_{\KL}(q_i \| q_j) + D_{\KL}(q_j \| q_i)\bigr],
+\end{equation}
+where $q_i = \mathcal{N}(\bmu_i, \mathrm{diag}(\boldsymbol{\sigma}^2_i))$.
+The top $K = 50$ candidates by smallest $D_{\KL}^{\mathrm{sym}}$
+proceed to Bayes factor scoring.
+
+\subsection{Two-Component Bayes Factor}
+\label{sec:bayes-factor}
+
+For each candidate pair, we compute two features: $k$-mer containment
+$J_{ij}$ and encoder cosine similarity $c_{ij}$.
+
+\paragraph{$k$-mer containment.}
+Given the minimizer sets $M_i$ and $M_j$:
+\begin{equation}
+  J_{ij} = \frac{|M_i \cap M_j|}{\min(|M_i|, |M_j|)}.
+\end{equation}
+This measures the fraction of shared $k$-mers relative to the smaller
+set, reflecting the expected containment under overlap.
+
+\paragraph{Encoder cosine similarity.}
+\begin{equation}
+  c_{ij} = \frac{\bmu_i \cdot \bmu_j}{\|\bmu_i\| \, \|\bmu_j\|}.
+\end{equation}
+
+\paragraph{Likelihood model.}
+Both features are modeled under separate genuine ($H_1$) and null
+($H_0$) distributions:
+\begin{align}
+  J_{ij} \mid H_1 &\sim \mathrm{Beta}(\alpha_1, \beta_1), &
+  J_{ij} \mid H_0 &\sim \mathrm{Beta}(\alpha_0, \beta_0), \\
+  c_{ij} \mid H_1 &\sim \mathcal{N}(\mu_1^c, \sigma_1^c), &
+  c_{ij} \mid H_0 &\sim \mathcal{N}(\mu_0^c, \sigma_0^c).
+\end{align}
+The log Bayes factor combines both features:
+\begin{equation}
+  \label{eq:log-bf}
+  \log \BF_{ij}
+    = \underbrace{\log \frac{p(J_{ij} \mid H_1)}{p(J_{ij} \mid H_0)}}_{\text{containment BF}}
+    + w_c \cdot \underbrace{\log \frac{p(c_{ij} \mid H_1)}{p(c_{ij} \mid H_0)}}_{\text{cosine BF}},
+\end{equation}
+where $w_c \in [0,1]$ is a reliability weight that downweights the
+cosine Bayes factor to account for residual correlation with the
+containment feature.  The final posterior logit is:
+\begin{equation}
+  \logit\, p_{ij} = \log \BF_{ij} + \logit\, \pi.
+\end{equation}
+
+\paragraph{Calibration pass.}
+The distribution parameters $(\alpha_1, \beta_1, \alpha_0, \beta_0,
+\mu_1^c, \sigma_1^c, \mu_0^c, \sigma_0^c)$ and prior $\pi$ are
+estimated from a single no-gradient pass through all reads using the
+trained encoder.  Beta parameters are fit via method of moments;
+Gaussian parameters are fit from sample mean and standard deviation.
+The prior $\pi$ is estimated as the fraction of genuine pairs among
+all top-$K$ candidates encountered during calibration.
+
+\begin{definition}[Calibrated posterior]
+  A posterior $p_{ij}$ is \emph{calibrated} if, among all pairs
+  assigned posterior $p_{ij} \approx p$, the fraction that are genuine
+  overlaps is approximately $p$.  We measure calibration via expected
+  calibration error (ECE) with 10 equal-width bins.
+\end{definition}
+
+\subsection{Edge Loss}
+\label{sec:loss}
+
+Given ground-truth labels $y_{ij} \in \{0, 1\}$, we train the encoder
+to minimize a focal binary cross-entropy loss:
+\begin{equation}
+  \mathcal{L}_{\mathrm{edge}}
+    = -\frac{1}{|E|} \sum_{(i,j) \in E}
+      w_{ij} \bigl[
+        y_{ij} \log p_{ij} + (1 - y_{ij}) \log(1 - p_{ij})
+      \bigr],
+\end{equation}
+where $w_{ij} = (1 - p_{ij})^2$ for genuine pairs and $w_{ij} =
+p_{ij}^2$ for null pairs (focal weighting).  The total loss adds a
+KL regularizer:
+\begin{equation}
+  \mathcal{L} = \lambda_1 \mathcal{L}_{\mathrm{edge}}
+              + \lambda_2 \mathcal{L}_{\KL},
+\end{equation}
+with $\mathcal{L}_{\KL}$ using free-bits thresholding
+\citep{kingma2016improved} at $\delta = 0.5$ nats per dimension.
+
+
+% ══════════════════════════════════════════════════════════
+\section{Read Encoder}
+\label{sec:encoder}
+
+\subsection{Architecture}
+
+The read encoder is a lightweight Transformer that maps a sequence of
+canonical $k$-mer tokens to a variational embedding.  The architecture
+consists of:
+\begin{itemize}
+  \item An embedding layer mapping $V + 1$ tokens (including padding)
+    to $d_{\mathrm{model}} = 64$ dimensions.
+  \item A learnable \texttt{[CLS]} token prepended to the input.
+  \item A 3-layer Transformer encoder with 4 attention heads,
+    feedforward dimension 256, pre-norm architecture, and dropout 0.1.
+  \item Linear projection heads $\bmu = W_\mu h_{\texttt{CLS}}$ and
+    $\log\boldsymbol{\sigma}^2 = \mathrm{clamp}(W_\sigma
+    h_{\texttt{CLS}}, -8, 2)$.
+\end{itemize}
+Total parameters: $\sim$1.2M.  The encoder runs on CPU for the
+synthetic genome experiments.
+
+\subsection{Contrastive Pretraining}
+\label{sec:contrastive}
+
+The encoder is pretrained with supervised InfoNCE
+\citep{oord2018representation} using ground-truth overlap labels.  For
+each anchor read $a$ with a randomly sampled positive $p$ (a read
+with genuine overlap) and $N^{-} = 8$ negatives, the loss is:
+\begin{equation}
+  \mathcal{L}_{\mathrm{NCE}}
+    = -\log \frac{\exp(s_{ap} / \tau)}
+                 {\exp(s_{ap} / \tau) + \sum_{n} \exp(s_{an} / \tau)},
+\end{equation}
+where $s_{ij} = \bmu_i \cdot \bmu_j / \sqrt{d}$ is the scaled
+dot-product similarity and $\tau$ is a temperature parameter.
+
+\paragraph{Preventing collapse.}
+Contrastive pretraining of variational encoders is prone to
+representation collapse, where all embeddings converge to a narrow
+region.  We employ several countermeasures:
+\begin{enumerate}
+  \item \textbf{Spread regularizer:} $\mathcal{L}_{\mathrm{spread}}
+    = \mathrm{mean}(|\cos(\bmu_i, \bmu_j)|)$ over all pairs in the
+    batch, penalizing uniform alignment.
+  \item \textbf{High-temperature warmup:} $\tau = 0.5$ for the first
+    10 epochs, annealing to $\tau = 0.1$ over the remaining epochs.
+  \item \textbf{Unnormalized $\bmu$:} Using dot products rather than
+    cosine similarity in the loss allows the encoder to use embedding
+    magnitude as a confidence signal.
+  \item \textbf{Orthogonality kick:} The $\mu$-head weights are
+    perturbed by $\mathcal{N}(0, 0.01)$ at initialization to break
+    symmetry.
+  \item \textbf{Minimal KL weight:} $\lambda_{\KL} = 0.01$ during
+    pretraining to preserve stochastic structure without constraining
+    the mean embeddings.
+\end{enumerate}
+The total pretraining loss is:
+\begin{equation}
+  \mathcal{L}_{\mathrm{pretrain}}
+    = \mathcal{L}_{\mathrm{NCE}}
+    + 0.5 \cdot \mathcal{L}_{\mathrm{spread}}
+    + 0.01 \cdot \mathcal{L}_{\KL}.
+\end{equation}
+
+
+% ══════════════════════════════════════════════════════════
+\section{Experimental Setup}
+\label{sec:experiments}
+
+\subsection{Synthetic Genome}
+
+We generate a 100\,kb circular prokaryotic chromosome with 50\% GC
+content and three identical 500\,bp repeat insertions spaced at 25\,kb
+intervals.  The genome is generated with a fixed random seed for
+reproducibility.
+
+\subsection{Read Simulation}
+
+PacBio HiFi reads are simulated at 30$\times$ coverage, producing
+$\sim$200 reads with log-normal length distribution (mean 15\,kb,
+SD 3\,kb).  The error model applies substitutions at rate $\varepsilon_s
+= 0.003$ and indels at rate $\varepsilon_i = 0.001$, with elevated
+indel rates at homopolymer runs $\geq 3$\,bp.  Reads are randomly
+assigned to forward or reverse strand.
+
+\subsection{Ground Truth Labels}
+
+A read pair $(i,j)$ is labeled genuine ($y_{ij} = 1$) if the true
+genomic overlap exceeds 5\,000\,bp based on the known read positions.
+This threshold is set above the $k$-mer containment discriminability
+floor, where genuine and null containment distributions overlap
+significantly (see \Cref{sec:disc-floor}).
+
+\subsection{Training Protocol}
+
+\begin{enumerate}
+  \item \textbf{Contrastive pretraining} (30 epochs): supervised
+    InfoNCE with batch size 4, learning rate $3 \times 10^{-4}$,
+    cosine annealing schedule.
+  \item \textbf{Calibration}: single no-gradient pass to fit the
+    two-component Bayes factor model parameters.
+  \item \textbf{Evaluation}: frozen encoder with fitted Bayes factor
+    model, computing posterior probabilities for all candidate edges.
+\end{enumerate}
+
+\subsection{Metrics}
+
+We report precision and recall at the default decision threshold
+($p > 0.5$, equivalently $\logit\, p > 0$), and expected calibration
+error (ECE) with 10 equal-width bins:
+\begin{equation}
+  \mathrm{ECE} = \sum_{b=1}^{10} \frac{n_b}{N}
+    \left| \mathrm{acc}(b) - \mathrm{conf}(b) \right|,
+\end{equation}
+where $\mathrm{acc}(b)$ and $\mathrm{conf}(b)$ are the mean accuracy
+and mean confidence in bin $b$.
+
+
+% ══════════════════════════════════════════════════════════
+\section{Results}
+\label{sec:results}
+
+\subsection{Main Results}
+
+\Cref{tab:main} presents the ablation results.  The containment-only
+Bayes factor achieves precision 0.777 and recall 0.650 with ECE 0.045.
+Adding the contrastive encoder's cosine similarity as a
+reliability-weighted second Bayes factor feature improves recall by
+10.1 percentage points to 0.751 while maintaining calibration
+(ECE 0.040).
+
+\begin{table}[ht]
+  \centering
+  \caption{Ablation results on the 100\,kb synthetic genome.
+    Bold indicates best result.}
+  \label{tab:main}
+  \begin{tabular}{lccc}
+    \toprule
+    Configuration & Precision & Recall & ECE \\
+    \midrule
+    Containment BF only        & 0.777 & 0.650 & 0.045 \\
+    + Contrastive encoder      & \textbf{0.781} & \textbf{0.751} & \textbf{0.040} \\
+    \midrule
+    Target                     & $>$0.80 & $>$0.75 & $<$0.12 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Calibration Analysis}
+
+The reliability diagram (\Cref{fig:calibration}) shows that the
+predicted posterior probabilities closely track empirical accuracy
+across all confidence bins.  The ECE of 0.040 indicates that the
+Bayesian framework produces posteriors that are faithful to the true
+overlap probability --- when BAWM assigns $p = 0.7$ to an edge,
+approximately 70\% of such edges are genuine overlaps.
+
+\begin{figure}[ht]
+  \centering
+  \includegraphics[width=0.9\textwidth]{../results/calibration.png}
+  \caption{Left: reliability diagram showing predicted confidence
+    vs.\ empirical accuracy.  Points near the diagonal indicate good
+    calibration (ECE = 0.040).  Right: confidence distribution by
+    ground-truth label.  The model assigns high confidence primarily to
+    genuine overlaps and low confidence to null pairs.}
+  \label{fig:calibration}
+\end{figure}
+
+\subsection{Logit Distribution Analysis}
+
+\Cref{tab:logits} shows the logit distributions for genuine and null
+edges.  The genuine distribution is centered at $+1.44$ with 76.4\% of
+genuine pairs above the decision threshold, while the null distribution
+is centered at $-4.06$ with only 10.3\% leaking above threshold.
+
+\begin{table}[ht]
+  \centering
+  \caption{Logit distribution statistics.}
+  \label{tab:logits}
+  \begin{tabular}{lcccc}
+    \toprule
+    Class & Mean & Std & Above 0 & Count \\
+    \midrule
+    Genuine & $+1.44$ & 2.12 & 76.4\% & 2785 \\
+    Null    & $-4.06$ & 4.43 & 10.3\% & 5940 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Fitted Distribution Parameters}
+
+The calibration pass yields the following two-component model
+(\Cref{tab:distributions}):
+
+\begin{table}[ht]
+  \centering
+  \caption{Fitted two-component model parameters from calibration.}
+  \label{tab:distributions}
+  \begin{tabular}{llcc}
+    \toprule
+    Feature & Distribution & Genuine ($H_1$) & Null ($H_0$) \\
+    \midrule
+    Containment $J$ & Beta & $\mathrm{Beta}(12.57, 38.72)$ & $\mathrm{Beta}(9.27, 52.60)$ \\
+    & Mean & 0.245 & 0.150 \\
+    \midrule
+    Cosine $c$ & Gaussian & $\mathcal{N}(0.819, 0.143)$ & $\mathcal{N}(0.530, 0.338)$ \\
+    \midrule
+    Prior $\pi$ & & \multicolumn{2}{c}{0.330 ($\logit\, \pi = -0.707$)} \\
+    Cosine weight $w_c$ & & \multicolumn{2}{c}{0.5} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The genuine containment distribution (mean 0.245) is well-separated
+from the null (mean 0.150), providing the backbone discriminative
+signal.  The encoder cosine similarity shows larger separation
+(genuine mean 0.819 vs.\ null mean 0.530) but with higher variance,
+particularly in the null class ($\sigma = 0.338$), reflecting the
+encoder's uncertainty on pairs without genuine overlap.
+
+
+% ══════════════════════════════════════════════════════════
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why Bayes Factors, Not Z-Scores}
+
+An earlier version of BAWM used $z$-score normalization to convert
+raw features into edge confidences.  This approach is fundamentally
+flawed: the $z$-score compares each candidate to the empirical
+\emph{mixture} of genuine and null candidates, creating a structural
+symmetry where approximately 50\% of candidates fall above any
+mean-based threshold regardless of the true discriminability.
+
+The Bayes factor formulation avoids this by comparing each observation
+against \emph{separate} genuine and null models.  A containment value
+of 0.20 receives different treatment depending on whether it is more
+likely under $\mathrm{Beta}(12.57, 38.72)$ or
+$\mathrm{Beta}(9.27, 52.60)$ --- the likelihood ratio captures the
+evidential meaning of the observation rather than its position in the
+mixture.
+
+\subsection{The Containment Discriminability Floor}
+\label{sec:disc-floor}
+
+Precision is bounded at 0.781, falling short of the 0.80 target.  This
+is not a model failure but a structural limit of the $k$-mer
+containment feature.
+
+For two reads with genomic overlap $L$ bp, the expected containment
+depends on $L$ relative to read length.  For overlaps below
+approximately 8\,kb (on reads of mean length 15\,kb), the containment
+values for genuine pairs overlap significantly with the null
+containment distribution.  The threshold sweep (\Cref{tab:threshold})
+confirms that no single threshold simultaneously achieves precision
+$> 0.80$ and recall $> 0.75$:
+
+\begin{table}[ht]
+  \centering
+  \caption{Precision--recall at selected decision thresholds.}
+  \label{tab:threshold}
+  \begin{tabular}{rcc}
+    \toprule
+    Logit threshold & Precision & Recall \\
+    \midrule
+    $-0.25$ & 0.769 & 0.793 \\
+    $\phantom{-}0.00$ & 0.781 & 0.751 \\
+    $+0.50$ & 0.802 & 0.662 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The posterior is \emph{correctly calibrated} in this ambiguous regime:
+pairs near the discriminability floor receive posterior probabilities
+around 0.4--0.6, accurately reflecting the model's genuine uncertainty.
+This is good Bayesian behavior --- the model knows what it doesn't know.
+
+\subsection{Contribution of the Contrastive Encoder}
+
+The contrastive encoder provides evidence that is partially independent
+of $k$-mer containment.  Before pretraining, the encoder produced
+nearly identical cosine similarities for genuine and null pairs
+(separation 0.003, indicating complete collapse).  After contrastive
+pretraining with the anti-collapse measures described in
+\Cref{sec:contrastive}, the separation increased to 0.553 (genuine
+$\mathcal{N}(0.766, 0.217)$ vs.\ null $\mathcal{N}(0.212, 0.389)$).
+
+This additional evidence rescues genuine pairs that containment alone
+finds ambiguous --- primarily shorter overlaps where $k$-mer sharing is
+limited but sequence-level patterns are still detectable by the
+encoder.  The recall improvement from 0.650 to 0.751 comes almost
+entirely from this population.
+
+Precision does not improve because the false positives are pairs with
+moderate containment \emph{and} moderate cosine similarity --- cases
+where both features are genuinely ambiguous.  The cosine Bayes factor
+is reliability-weighted ($w_c = 0.5$) to prevent correlation with
+containment from inflating the combined evidence.
+
+\subsection{Why Online Bayesian Training Did Not Help}
+
+We attempted end-to-end Bayesian training where the encoder is updated
+via BCE loss on the two-feature posterior.  This degraded results
+because the Bayes factor model parameters (Beta shapes, Gaussian
+means/variances) are fitted once during calibration and held fixed.
+As the encoder's cosine distribution shifts during training, the
+calibration-epoch Gaussians become stale, and the cosine Bayes factor
+becomes increasingly miscalibrated.
+
+Periodic refitting of the Bayes factor model during training would
+address this, but on the 100\,kb toy genome the encoder lacks
+sufficient diversity to improve beyond the contrastive pretraining
+checkpoint.  This motivates the move to larger genomes in future work.
+
+
+% ══════════════════════════════════════════════════════════
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Overlap detection.}
+Modern long-read assemblers use seed-and-extend strategies with
+$k$-mer or minimizer indices \citep{li2016minimap2,
+cheng2021hifiasm}.  BAWM shares the minimizer filtering stage but
+replaces alignment scoring with probabilistic inference.
+
+\paragraph{Learned representations for genomics.}
+Foundation models for DNA sequences \citep{ji2021dnabert,
+dalla2023nucleotide} learn general-purpose embeddings but are not
+designed for the overlap detection task.  Our contrastive pretraining
+is task-specific, directly optimizing for overlap discriminability.
+
+\paragraph{Bayesian approaches in bioinformatics.}
+Bayesian methods have been applied to variant calling
+\citep{garrison2012haplotype}, phylogenetics \citep{ronquist2003mrbayes},
+and read error correction \citep{greenfield2014bayeshammer}, but we
+are not aware of prior work formulating overlap detection itself as
+Bayesian posterior inference with calibrated likelihood ratios.
+
+\paragraph{Calibration in machine learning.}
+Post-hoc calibration methods such as Platt scaling
+\citep{platt1999probabilistic} and temperature scaling
+\citep{guo2017calibration} are widely used but operate as
+corrections to miscalibrated models.  BAWM achieves calibration by
+construction through proper Bayesian inference.
+
+
+% ══════════════════════════════════════════════════════════
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{enumerate}
+  \item \textbf{Toy genome.} The 100\,kb synthetic genome is far
+    smaller than real prokaryotic ($\sim$5\,Mb) or eukaryotic genomes.
+    The repeat structure (three identical 500\,bp copies) does not
+    capture the complexity of real repeat families.
+
+  \item \textbf{Supervised labels.} The current framework requires
+    ground-truth overlap labels for the calibration pass.  In practice,
+    these would need to be derived from alignment or estimated via
+    self-supervision.
+
+  \item \textbf{Single overlap threshold.} Labeling all pairs above
+    5\,000\,bp as genuine creates a heterogeneous positive class.
+    Overlap-length-conditional likelihoods would better model the
+    relationship between overlap length and feature distributions.
+
+  \item \textbf{Frozen Bayes factor model.} The distribution
+    parameters are fitted once and not updated as the encoder evolves.
+    This prevents effective end-to-end training.
+
+  \item \textbf{Minimizer set saturation.} The minimizer count
+    (stored as a set) saturates for long overlaps, preventing the
+    containment feature from tracking overlap length linearly beyond
+    $\sim$5\,kb.
+\end{enumerate}
+
+
+% ══════════════════════════════════════════════════════════
+\section{Future Work}
+\label{sec:future}
+
+Paper~2 will address the identified limitations:
+\begin{itemize}
+  \item \textbf{Larger genomes} (1--5\,Mb) with realistic repeat
+    families, where the encoder has sufficient diversity to learn
+    beyond the contrastive pretraining checkpoint.
+  \item \textbf{Online Bayes factor refitting:} periodically
+    recomputing the genuine and null distribution parameters as the
+    encoder evolves during training.
+  \item \textbf{Overlap-length-conditional likelihoods:} separate
+    Beta distributions for different overlap-length regimes,
+    addressing the heterogeneous positive class.
+  \item \textbf{Self-supervised calibration:} deriving pseudo-labels
+    from alignment confidence to remove the dependence on ground-truth
+    overlap labels.
+\end{itemize}
+
+
+% ══════════════════════════════════════════════════════════
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have presented BAWM, a framework for de novo genome assembly that
+treats overlap detection as Bayesian posterior inference.  On a
+synthetic genome, BAWM produces well-calibrated posterior probabilities
+(ECE 0.040) that faithfully reflect the true probability of overlap.
+The two-component Bayes factor model with $k$-mer containment and
+contrastive encoder cosine similarity achieves precision 0.781 and
+recall 0.751, with a clear structural explanation for the remaining
+precision gap.
+
+The central insight is that proper Bayesian inference --- with fitted
+genuine and null distributions and analytic likelihood ratios ---
+achieves calibration by construction, without requiring post-hoc
+correction.  The model's uncertainty estimates are meaningful: when
+BAWM is uncertain about an overlap, it is genuinely ambiguous given
+the available evidence.
+
+This proof of concept establishes the theoretical and empirical
+foundation for scaling Bayesian assembly to real genomes, where the
+framework's calibrated uncertainty estimates can inform downstream
+assembly decisions in a principled way.
+
+
+% ══════════════════════════════════════════════════════════
+\bibliography{references}
+
+\end{document}

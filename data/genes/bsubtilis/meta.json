@@ -1,0 +1,123 @@
+{
+  "accession": "NC_000964.3",
+  "organism": "Bacillus subtilis 168",
+  "length": 4215606,
+  "gc_content": 0.43514,
+  "gc_std_10kb": 0.032,
+  "gc_min_10kb": 0.318,
+  "gc_max_10kb": 0.5196,
+  "known_repeats": [
+    {
+      "start": 9810,
+      "end": 15428,
+      "name": "rrnO",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 94998,
+      "end": 100560,
+      "name": "rrnA",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 171278,
+      "end": 176840,
+      "name": "rrnJ",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 627829,
+      "end": 633396,
+      "name": "rrnW",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 649839,
+      "end": 655401,
+      "name": "rrnI",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 661796,
+      "end": 667359,
+      "name": "rrnH",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 680528,
+      "end": 686097,
+      "name": "rrnG",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 3211832,
+      "end": 3217397,
+      "name": "rrnE",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 3641478,
+      "end": 3647037,
+      "name": "rrnD",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 4154577,
+      "end": 4160141,
+      "name": "rrnB",
+      "type": "rRNA_operon"
+    }
+  ],
+  "repeat_locs": [
+    [
+      9810,
+      15428,
+      0
+    ],
+    [
+      94998,
+      100560,
+      1
+    ],
+    [
+      171278,
+      176840,
+      2
+    ],
+    [
+      627829,
+      633396,
+      3
+    ],
+    [
+      649839,
+      655401,
+      4
+    ],
+    [
+      661796,
+      667359,
+      5
+    ],
+    [
+      680528,
+      686097,
+      6
+    ],
+    [
+      3211832,
+      3217397,
+      7
+    ],
+    [
+      3641478,
+      3647037,
+      8
+    ],
+    [
+      4154577,
+      4160141,
+      9
+    ]
+  ]
+}

@@ -1,0 +1,45 @@
+# BAWM Paper 1 — Toy Genome Experiment Config
+
+genome:
+  length: 100000
+  gc: 0.50
+  n_repeats: 3
+  repeat_len: 500
+  seed: 42
+
+reads:
+  coverage: 30
+  mean_len: 15000
+  sd_len: 3000
+  seed: 42
+
+encoder:
+  vocab: 4096
+  d_model: 64
+  n_heads: 4
+  n_layers: 3
+  d_ffn: 256
+  latent: 64
+  dropout: 0.1
+  k: 11
+  stride: 5
+
+pretrain:
+  epochs: 10
+  batch_size: 8
+  lr: 0.0003
+  ema_decay: 0.996
+  mask_frac: 0.30
+  free_bits: 0.5
+
+training:
+  epochs: 30
+  lr: 0.0005
+  lambda1: 1.0    # edge loss weight
+  lambda2: 0.1    # KL loss weight
+  k_candidates: 10
+  free_bits: 0.5
+
+evaluation:
+  threshold: 0.5
+  ece_bins: 10

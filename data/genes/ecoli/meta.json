@@ -1,0 +1,90 @@
+{
+  "accession": "NC_000913.3",
+  "organism": "Escherichia coli K-12 MG1655",
+  "length": 4641652,
+  "gc_content": 0.50791,
+  "gc_std_10kb": 0.02749,
+  "gc_min_10kb": 0.3813,
+  "gc_max_10kb": 0.6126,
+  "known_repeats": [
+    {
+      "start": 223771,
+      "end": 229357,
+      "name": "rrnH",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 2726188,
+      "end": 2731597,
+      "name": "rrnE",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 3427221,
+      "end": 3432653,
+      "name": "rrnD",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 3941599,
+      "end": 3947050,
+      "name": "rrnC",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 4035531,
+      "end": 4040996,
+      "name": "rrnA",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 4166659,
+      "end": 4172117,
+      "name": "rrnB",
+      "type": "rRNA_operon"
+    },
+    {
+      "start": 4208147,
+      "end": 4213567,
+      "name": "rrnG",
+      "type": "rRNA_operon"
+    }
+  ],
+  "repeat_locs": [
+    [
+      223771,
+      229357,
+      0
+    ],
+    [
+      2726188,
+      2731597,
+      1
+    ],
+    [
+      3427221,
+      3432653,
+      2
+    ],
+    [
+      3941599,
+      3947050,
+      3
+    ],
+    [
+      4035531,
+      4040996,
+      4
+    ],
+    [
+      4166659,
+      4172117,
+      5
+    ],
+    [
+      4208147,
+      4213567,
+      6
+    ]
+  ]
+}

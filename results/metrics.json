@@ -1,0 +1,18 @@
+{
+  "precision": 0.7957555449178235,
+  "recall": 0.7512805061765592,
+  "ece": 0.004015057138663519,
+  "n_edges": 462875,
+  "n_genuine": 6638,
+  "tp": 4987,
+  "fp": 1280,
+  "fn": 1651,
+  "repeat_n_edges": 8629,
+  "repeat_conf_mean": 0.015486485096414435,
+  "repeat_precision": 0.5871559633027523,
+  "repeat_recall": 0.6666666666666666,
+  "genuine_logit_mean": 9.205373172800972,
+  "genuine_logit_std": 11.416387121728938,
+  "null_logit_mean": -10.511583117063928,
+  "null_logit_std": 2.849101822517721
+}

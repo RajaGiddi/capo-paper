@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Notebooks
+.ipynb_checkpoints/
+
+# ── Repo-specific large / regenerable artefacts ─────────────────────
+
+# Reference genomes + simulated reads (regenerable; see README setup steps).
+# meta.json is kept (small, lets reviewers skip the EDA stage).
+# Toy genome data is kept (small, used for smoke tests).
+data/genes/ecoli/genome.fasta
+data/genes/ecoli/reads.fastq
+data/genes/ecoli/edge_labels.json
+data/genes/ecoli/read_positions.json
+data/genes/ecoli/ncbi_dataset/
+data/genes/bsubtilis/genome.fasta
+data/genes/bsubtilis/reads.fastq
+data/genes/bsubtilis/edge_labels.json
+data/genes/bsubtilis/read_positions.json
+data/genes/bsubtilis/ncbi_dataset/
+data/genes/scerevisiae/genome.fasta
+data/genes/scerevisiae/reads.fastq
+data/genes/scerevisiae/edge_labels.json
+data/genes/scerevisiae/read_positions.json
+data/genes/scerevisiae/ncbi_dataset/
+
+# Trained encoder checkpoints (~5 MB each; produced by scripts/modal_pretrain.py)
+checkpoints/*.pt
+
+# Per-genome experiment outputs
+results/*/minimap2.paf
+results/*/*.json
+results/*/*.png
+results/*/*.log
+
+# Modal cache
+.modal/
+
+.docx
