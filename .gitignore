@@ -47,11 +47,8 @@ data/genes/scerevisiae/ncbi_dataset/
 # Trained encoder checkpoints (~5 MB each; produced by scripts/modal_pretrain.py)
 checkpoints/*.pt
 
-# Per-genome experiment outputs
-results/*/minimap2.paf
-results/*/*.json
-results/*/*.png
-results/*/*.log
+# Experiment outputs (per-genome subdirs + any top-level artefacts)
+results/
 
 # Modal cache
 .modal/
