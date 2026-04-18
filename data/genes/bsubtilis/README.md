@@ -13,13 +13,6 @@ Data report files are in JSON Lines format.
 
 Your data is in the subdirectory `ncbi_dataset/data/` contained within this zip archive.
 
-### I still can't find my data, can you help?
-
-We have identified a bug affecting Mac Safari users. When downloading data from the NCBI Datasets web interface, you may see only this README file after the download has completed (while other files appear to be missing).
-As a workaround to prevent this issue from recurring, we recommend disabling automatic zip archive extraction in Safari until Apple releases a bug fix.
-For more information, visit:
-https://www.ncbi.nlm.nih.gov/datasets/docs/reference-docs/mac-zip-bug/
-
 ### How do I work with JSON Lines data reports?
 
 Visit our JSON Lines data report documentation page:

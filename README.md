@@ -108,7 +108,7 @@ cd ..
 git clone https://github.com/lh3/minimap2.git
 cd minimap2
 make                                   # x86_64
-# Apple Silicon: make arm_neon=1 aarch64=1
+
 ```
 
 `bawm.evaluation.minimap_baseline` defaults to `../minimap2/minimap2`.
