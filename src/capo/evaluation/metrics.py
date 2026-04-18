@@ -6,7 +6,7 @@ rRNA operon-specific analysis.
 """
 import numpy as np
 import matplotlib.pyplot as plt
-from bawm.models.graph_state import AssemblyGraph
+from capo.models.graph_state import AssemblyGraph
 
 
 def compute_edge_metrics(graph: AssemblyGraph,

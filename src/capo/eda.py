@@ -129,7 +129,7 @@ def genome_summary(fasta_path: str, cfg=None) -> dict:
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="Genome EDA")
-    ap.add_argument("--genome", help="Name from data/genomes.py registry "
+    ap.add_argument("--genome", help="Name from src/capo/genomes.py registry "
                     "(ecoli, bsubtilis, scerevisiae, ...)")
     ap.add_argument("--fasta", help="Path to FASTA (overrides --genome)")
     args = ap.parse_args()
@@ -140,7 +140,7 @@ if __name__ == "__main__":
     else:
         if not args.genome:
             ap.error("Pass --genome NAME or --fasta PATH")
-        from bawm.genomes import get
+        from capo.genomes import get
         cfg = get(args.genome)
         fasta_path = str(cfg.fasta)
 

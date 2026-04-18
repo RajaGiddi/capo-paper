@@ -18,8 +18,8 @@
   urlcolor=blue!60!black
 }
 
-\title{Calibrated Bayesian Overlap Detection for Long-Read\\
-Genome Assembly}
+\title{CAPO: Calibrated Posterior Probabilities for\\
+de novo Assembly Overlap Graphs}
 
 \author{Raja Giddi}
 \affil{Independent}
@@ -32,7 +32,7 @@ Genome Assembly}
 Modern long-read genome assemblers report overlap calls without calibrated
 uncertainty: a score above a fixed threshold is treated as a genuine overlap,
 and downstream layout and consensus algorithms lose all information about
-confidence. We present BAWM, a Bayesian overlap detector that outputs posterior
+confidence. We present CAPO, a Bayesian overlap detector that outputs posterior
 probabilities via likelihood-ratio Bayes factors over a small set of
 interpretable features, combined with a bivariate $t$-copula correction for
 feature dependence. A frozen encoder, contrastively pretrained on a
@@ -40,7 +40,7 @@ noisy-overlap proxy, supplies a single semantic feature; two geometric
 features (k-mer containment and minimiser chain coverage) supply the rest.
 On the \textit{Escherichia coli} K-12 MG1655 reference ($4.6$\,Mb, simulated
 PacBio HiFi, 30\,$\times$ coverage, 9{,}283 reads, 462{,}875 candidate pairs),
-BAWM attains precision $0.847$, recall $0.751$, and expected calibration
+CAPO attains precision $0.847$, recall $0.751$, and expected calibration
 error $\mathrm{ECE} = 0.004$ at an interpretable decision threshold. The
 calibration is roughly an order of magnitude tighter than the same pipeline
 on a 100\,kb synthetic benchmark ($\mathrm{ECE}=0.040$) and is preserved in
@@ -312,8 +312,8 @@ gives $8{,}629$ pairs.
 
 \begin{table}[h]
 \centering
-\caption{Overall performance on \textit{E.\ coli} K-12 MG1655. BAWM-6f is
-the model with all six originally proposed features; BAWM-3f drops the
+\caption{Overall performance on \textit{E.\ coli} K-12 MG1655. CAPO-6f is
+the model with all six originally proposed features; CAPO-3f drops the
 three uninformative/inverted features (see \Cref{sec:ablation}). $t^*$ is
 the log-odds threshold at which $F_1$ is maximised subject to
 $P \ge 0.80, R \ge 0.75$. ECE is expected calibration error over 10 equal-width bins.}
@@ -322,14 +322,14 @@ $P \ge 0.80, R \ge 0.75$. ECE is expected calibration error over 10 equal-width 
 \toprule
 Model & Threshold & Precision & Recall & $F_1$ & ECE \\
 \midrule
-BAWM-6f ($t = 0$) & $0$    & $0.796$ & $0.751$ & $0.773$ & $0.004$ \\
-BAWM-3f ($t = 0$) & $0$    & $0.905$ & $0.695$ & $0.786$ & $0.004$ \\
-\textbf{BAWM-3f ($t^*$)} & $-1.5$ & $\mathbf{0.847}$ & $\mathbf{0.751}$ & $\mathbf{0.796}$ & $\mathbf{0.004}$ \\
+CAPO-6f ($t = 0$) & $0$    & $0.796$ & $0.751$ & $0.773$ & $0.004$ \\
+CAPO-3f ($t = 0$) & $0$    & $0.905$ & $0.695$ & $0.786$ & $0.004$ \\
+\textbf{CAPO-3f ($t^*$)} & $-1.5$ & $\mathbf{0.847}$ & $\mathbf{0.751}$ & $\mathbf{0.796}$ & $\mathbf{0.004}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-BAWM-3f at $t^* = -1.5$ reaches precision $0.847$, recall $0.751$, $F_1 =
+CAPO-3f at $t^* = -1.5$ reaches precision $0.847$, recall $0.751$, $F_1 =
 0.796$, and expected calibration error $0.004$ on $462{,}875$ candidate
 pairs. All three metrics clear the targets set \textit{a priori}
 ($P > 0.80$, $R > 0.75$, $\mathrm{ECE} < 0.12$) with margin.
@@ -465,8 +465,8 @@ $\rho_0 = 0.004$.}
 \toprule
 Model & Precision & Recall & ECE \\
 \midrule
-BAWM-3f, no copula correction & $0.836$ & $0.746$ & $0.012$ \\
-BAWM-3f, $t$-copula corrected & $0.847$ & $0.751$ & $\mathbf{0.004}$ \\
+CAPO-3f, no copula correction & $0.836$ & $0.746$ & $0.012$ \\
+CAPO-3f, $t$-copula corrected & $0.847$ & $0.751$ & $\mathbf{0.004}$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -512,7 +512,7 @@ would necessarily be on precision/recall at a fixed operating point and
 not on ECE.
 
 \paragraph{Toward a world model.}
-The name BAWM (Bayesian Assembly as World Modeling) signals a longer-term
+The name CAPO (Calibrated Posterior probabilities for assembly Overlap graphs) signals a longer-term
 research programme in which the genome is treated as a latent variable and
 the reads as noisy observations. The current paper is properly a calibrated
 \emph{edge detector}, not a world model: it does not predict unobserved
@@ -567,7 +567,7 @@ graph, turning the pair-wise posterior into a graph-wide one.
 \section*{Code and data availability}
 The implementation, simulator, and all artefacts used to produce the
 \textit{E.\ coli} numbers in this paper are available at
-\url{https://github.com/<anon>/bawm}.
+\url{https://github.com/<anon>/capo}.
 
 \bibliographystyle{plainnat}
 \begin{thebibliography}{99}

@@ -1,4 +1,4 @@
-name: bawm_p1
+name: capo_p1
 channels:
   - defaults
   - conda-forge

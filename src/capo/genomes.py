@@ -13,7 +13,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 
-# src/bawm/genomes.py → ../../.. = repo root
+# src/capo/genomes.py → ../../.. = repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 GENES_ROOT = REPO_ROOT / "data" / "genes"
 

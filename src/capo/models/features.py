@@ -10,7 +10,7 @@ Features (per candidate pair):
   6. Encoder cosine similarity  — from contrastive-pretrained encoder
 """
 import numpy as np
-from bawm.models.encoder import K, STRIDE
+from capo.models.encoder import K, STRIDE
 
 
 # ── Minimiser chaining ───────────────────────────────────────────────

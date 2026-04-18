@@ -183,7 +183,7 @@ if __name__ == '__main__':
     import argparse
 
     ap = argparse.ArgumentParser(description="Simulate HiFi reads from a genome")
-    ap.add_argument("--genome", help="Name from data/genomes.py registry")
+    ap.add_argument("--genome", help="Name from src/capo/genomes.py registry")
     ap.add_argument("--fasta", help="Path to FASTA (overrides --genome)")
     ap.add_argument("--coverage", type=int, default=None, help="Override coverage")
     ap.add_argument("--seed", type=int, default=42)
@@ -200,7 +200,7 @@ if __name__ == '__main__':
     else:
         if not args.genome:
             ap.error("Pass --genome NAME or --fasta PATH")
-        from bawm.genomes import get
+        from capo.genomes import get
         cfg = get(args.genome)
         fasta_path = str(cfg.fasta)
         reads_out = str(cfg.reads)

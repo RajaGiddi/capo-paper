@@ -3,8 +3,8 @@ Minimap2 ava-pb baseline for any registered genome.
 
 Runs `minimap2 -x ava-pb reads.fastq reads.fastq` (all-vs-all HiFi overlap),
 parses the PAF, and computes precision/recall vs the same ground-truth edge
-labels BAWM uses. Output is written to results/<genome>/minimap_baseline.json
-so BAWM and minimap2 can be compared on matched P/R.
+labels CAPO uses. Output is written to results/<genome>/minimap_baseline.json
+so CAPO and minimap2 can be compared on matched P/R.
 
 Usage:
     python evaluation/minimap_baseline.py --genome ecoli
@@ -17,7 +17,7 @@ Notes:
       is a better continuous ranker than mapQ (which saturates at 60).
     - Candidate-set alignment: minimap2 reports only found overlaps. For the
       comparison, we treat any pair minimap2 did NOT report as score = 0,
-      i.e. as if it had been considered and rejected. BAWM's 462k candidate
+      i.e. as if it had been considered and rejected. CAPO's 462k candidate
       set is the denominator in both cases.
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from bawm.genomes import get as get_genome
+from capo.genomes import get as get_genome
 
 
 def run_minimap2(minimap2_bin: str, reads_fastq: Path, paf_out: Path,
@@ -100,7 +100,7 @@ def parse_paf(paf_path: Path, read_id_to_idx: dict[str, int]) -> dict:
 def compute_metrics(pairs: dict, candidate_pairs: list, true_labels: dict,
                      score_key: str = "s1") -> dict:
     """
-    Compute P/R over the BAWM candidate set. Pairs not in the PAF are
+    Compute P/R over the CAPO candidate set. Pairs not in the PAF are
     treated as score = 0.
     """
     scores, ys = [], []
@@ -153,9 +153,9 @@ def compute_metrics(pairs: dict, candidate_pairs: list, true_labels: dict,
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Minimap2 baseline for BAWM genomes")
+    ap = argparse.ArgumentParser(description="Minimap2 baseline for CAPO genomes")
     ap.add_argument("--genome", required=True, help="Registered genome name")
-    from bawm.genomes import REPO_ROOT
+    from capo.genomes import REPO_ROOT
     ap.add_argument("--minimap2",
                     default=str(REPO_ROOT.parent / "minimap2" / "minimap2"),
                     help="Path to minimap2 binary (default: ../minimap2/minimap2)")
@@ -184,7 +184,7 @@ def main():
 
     pairs = parse_paf(paf_path, read_id_to_idx)
 
-    # Load BAWM candidate set and ground truth
+    # Load CAPO candidate set and ground truth
     raw_labels = json.load(open(cfg.edge_labels))
     true_labels = {eval(k): v for k, v in raw_labels.items()}
     candidate_pairs = list(true_labels.keys())

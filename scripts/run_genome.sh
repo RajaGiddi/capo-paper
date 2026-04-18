@@ -1,16 +1,16 @@
 #!/bin/bash
-# run_genome.sh — BAWM pipeline for any registered genome
+# run_genome.sh — CAPO pipeline for any registered genome
 #
 # Usage: bash scripts/run_genome.sh <genome_name> [stage]
 #
-#   genome_name: toy | ecoli | bsubtilis | scerevisiae  (see src/bawm/genomes.py)
+#   genome_name: toy | ecoli | bsubtilis | scerevisiae  (see src/capo/genomes.py)
 #   stage:       eda | simulate | pretrain | infer | eval | all  (default: all)
 #
 # Examples:
 #   bash scripts/run_genome.sh ecoli all
 #   bash scripts/run_genome.sh toy simulate
 #
-# Run from the repo root. Requires `pip install -e .` (so `python -m bawm.*` works).
+# Run from the repo root. Requires `pip install -e .` (so `python -m capo.*` works).
 #
 # Prerequisites:
 #   - The genome's FASTA at data/genes/<name>/genome.fasta
@@ -22,7 +22,7 @@ GENOME="${1:-ecoli}"
 STAGE="${2:-all}"
 
 echo '═══════════════════════════════════════'
-echo " BAWM pipeline — $GENOME ($STAGE)"
+echo " CAPO pipeline — $GENOME ($STAGE)"
 echo '═══════════════════════════════════════'
 
 mkdir -p checkpoints "results/$GENOME"
@@ -30,13 +30,13 @@ mkdir -p checkpoints "results/$GENOME"
 run_eda() {
     echo ''
     echo '[EDA] Genome analysis...'
-    python -m bawm.eda --genome "$GENOME"
+    python -m capo.eda --genome "$GENOME"
 }
 
 run_simulate() {
     echo ''
     echo '[Simulate] HiFi reads...'
-    python -m bawm.simulator --genome "$GENOME"
+    python -m capo.simulator --genome "$GENOME"
 }
 
 run_pretrain() {
@@ -51,8 +51,8 @@ run_infer() {
     python -c "
 import json
 from Bio import SeqIO
-from bawm.genomes import get
-from bawm.training import run_inference
+from capo.genomes import get
+from capo.training import run_inference
 
 cfg = get('$GENOME')
 reads_raw = list(SeqIO.parse(str(cfg.reads), 'fastq'))
@@ -83,9 +83,9 @@ run_eval() {
     echo '[Eval] Metrics + calibration...'
     python -c "
 import json
-from bawm.genomes import get
-from bawm.models.graph_state import AssemblyGraph, EdgeData
-from bawm.evaluation.metrics import (compute_edge_metrics, threshold_sweep,
+from capo.genomes import get
+from capo.models.graph_state import AssemblyGraph, EdgeData
+from capo.evaluation.metrics import (compute_edge_metrics, threshold_sweep,
                                       feature_ablation, plot_calibration)
 
 cfg = get('$GENOME')

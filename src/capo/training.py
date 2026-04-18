@@ -1,5 +1,5 @@
 """
-BAWM training and inference pipeline for E. coli scale.
+CAPO training and inference pipeline for E. coli scale.
 
 Frozen-encoder mode: contrastive-pretrained encoder provides cosine features,
 all BF parameters fitted from calibration, no encoder gradient updates.
@@ -15,12 +15,12 @@ import time
 from tqdm import tqdm
 from collections import defaultdict
 
-from bawm.models.encoder import ReadEncoder, seq_to_tokens, collate_reads
-from bawm.models.graph_state import AssemblyGraph, NodeData, EdgeData
-from bawm.models.features import (
+from capo.models.encoder import ReadEncoder, seq_to_tokens, collate_reads
+from capo.models.graph_state import AssemblyGraph, NodeData, EdgeData
+from capo.models.features import (
     extract_minimiser_positions, compute_all_features, compute_containment
 )
-from bawm.models.likelihood import (
+from capo.models.likelihood import (
     MultiFeatureBFModel, fit_multi_feature_model,
     compute_log_bayes_factor, print_model_summary
 )

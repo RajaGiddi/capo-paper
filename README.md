@@ -1,7 +1,7 @@
-# BAWM: Calibrated Probabilistic Overlap Confidences for Long-Read Genome Assembly
+# CAPO: Calibrated Posterior Probabilities for de novo Assembly Overlap Graphs
 
-> Research artefact accompanying the paper *"Calibrated Probabilistic Overlap
-> Confidences for Long-Read Genome Assembly"* (in prep, 2026).
+> Research artefact accompanying the paper *"CAPO: Calibrated Posterior
+> Probabilities for de novo Assembly Overlap Graphs"* (in prep, 2026).
 
 ---
 
@@ -15,9 +15,9 @@ Downstream consumers (assemblers, polishers, repeat resolvers) are therefore
 forced to apply hand-tuned thresholds with no principled way to propagate
 uncertainty.
 
-We show that **calibrated overlap probabilities** can be obtained by layering
-a small probabilistic model on top of minimap2's candidate set, using only
-three orthogonal features per pair:
+CAPO shows that **calibrated posterior probabilities** can be obtained by
+layering a small probabilistic model on top of minimap2's candidate set,
+using only three orthogonal features per pair:
 
 1. **Containment** — fraction of shared minimisers between the two reads.
 2. **Chain coverage** — fraction of the shorter read spanned by the longest
@@ -37,10 +37,10 @@ under a 30 / 70 train / held-out split.
 |-------------|---------------------------|------|------|------|-------|
 | E. coli     | minimap2 binary            | 1.00 | 0.75 | 0.86 | N/A   |
 | E. coli     | mm2 + Bayes factor (no copula) | 0.86 | 0.77 | 0.81 | 0.032 |
-| E. coli     | **mm2 + LogReg**           | 0.85 | 0.79 | 0.82 | **0.013** |
+| E. coli     | **mm2 + LogReg (CAPO)**    | 0.85 | 0.79 | 0.82 | **0.013** |
 | B. subtilis | minimap2 binary            | 1.00 | 0.75 | 0.86 | N/A   |
 | B. subtilis | mm2 + Bayes factor (no copula) | 0.83 | 0.79 | 0.81 | 0.032 |
-| B. subtilis | **mm2 + LogReg**           | 0.82 | 0.81 | 0.82 | **0.025** |
+| B. subtilis | **mm2 + LogReg (CAPO)**    | 0.82 | 0.81 | 0.82 | **0.025** |
 
 All numbers are held-out: 70 % of minimap2 candidate pairs were unseen
 during model fitting. In-sample and held-out F1 agree to ≤ 0.003 on both
@@ -66,7 +66,7 @@ flowchart LR
     H --> H2[Chain coverage]
     H --> H3[Cosine similarity]
 
-    H1 --> I[Scoring head]
+    H1 --> I[CAPO scoring head]
     H2 --> I
     H3 --> I
 
@@ -81,9 +81,9 @@ flowchart LR
 ```
 
 The pipeline cleanly separates **candidate generation** (minimap2's job; we
-don't try to compete with it) from **calibrated scoring** (where we
-contribute). Each candidate pair receives an independent probability
-estimate trained against the simulator's ground truth.
+don't try to compete with it) from **calibrated scoring** (where CAPO
+contributes). Each candidate pair receives an independent posterior
+probability trained against the simulator's ground truth.
 
 ---
 
@@ -93,11 +93,11 @@ estimate trained against the simulator's ground truth.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[gpu]"            # installs `bawm` package + Modal extras
+pip install -e ".[gpu]"            # installs `capo` package + Modal extras
 ```
 
-After install, every module is importable as `from bawm.X import ...` and
-every script is runnable as `python -m bawm.<module> ...`.
+After install, every module is importable as `from capo.X import ...` and
+every script is runnable as `python -m capo.<module> ...`.
 
 ### minimap2 (not vendored)
 
@@ -108,10 +108,10 @@ cd ..
 git clone https://github.com/lh3/minimap2.git
 cd minimap2
 make                                   # x86_64
-
+# Apple Silicon: make arm_neon=1 aarch64=1
 ```
 
-`bawm.evaluation.minimap_baseline` defaults to `../minimap2/minimap2`.
+`capo.evaluation.minimap_baseline` defaults to `../minimap2/minimap2`.
 Override with `--minimap2 /path/to/minimap2`.
 
 ### Reference genomes
@@ -133,7 +133,8 @@ modal token new
 ```
 
 The pretraining script uses a Modal volume named `bawm-ecoli-vol` (legacy
-name retained so existing remote checkpoints aren't orphaned).
+name retained from earlier iterations so existing remote checkpoints aren't
+orphaned).
 
 ---
 
@@ -168,13 +169,13 @@ After pretraining is done and you have a checkpoint at
 
 ```bash
 # 1. Generate the minimap2 candidate set (~5 min for E. coli)
-python -m bawm.evaluation.minimap_baseline --genome ecoli
+python -m capo.evaluation.minimap_baseline --genome ecoli
 
 # 2. Fit BF + LogReg scoring heads on the candidate set, report all metrics
-python -m bawm.evaluation.bawm_on_minimap  --genome ecoli
+python -m capo.evaluation.capo_on_minimap  --genome ecoli
 
 # 3. Copula ablation
-python -m bawm.evaluation.bawm_on_minimap  --genome ecoli --no-copula
+python -m capo.evaluation.capo_on_minimap  --genome ecoli --no-copula
 ```
 
 Each invocation prints `IN-SAMPLE`, `HELD-OUT`, and `ALL` blocks for both
@@ -210,17 +211,17 @@ threshold corresponds directly to your decision-cost ratio.
 ## Repository layout
 
 ```
-bawm/
+capo/
 ├── pyproject.toml                       # packaging + deps
 ├── README.md
 ├── .gitignore
 ├── environment.yml                      # legacy conda env (toy genome era)
-├── src/bawm/                            # importable package
+├── src/capo/                            # importable package
 │   ├── __init__.py
 │   ├── genomes.py                       # registry: toy / ecoli / bsubtilis / scerevisiae
 │   ├── eda.py                           # GC content, repeat annotation summary
 │   ├── simulator.py                     # HiFi read simulator + ground-truth labels
-│   ├── training.py                      # standalone-BAWM inference (top-K + BF)
+│   ├── training.py                      # standalone-CAPO inference (top-K + BF)
 │   ├── models/
 │   │   ├── encoder.py                   # contrastive read encoder (transformer, 64-d)
 │   │   ├── features.py                  # containment, chain coverage, end anchoring
@@ -229,7 +230,7 @@ bawm/
 │   └── evaluation/
 │       ├── metrics.py                   # P/R/ECE, threshold sweep, feature ablation
 │       ├── minimap_baseline.py          # run minimap2 ava-pb, report P/R sweep
-│       └── bawm_on_minimap.py           # main paper experiment (BF + LogReg)
+│       └── capo_on_minimap.py           # main paper experiment (BF + LogReg)
 ├── scripts/
 │   ├── run_genome.sh                    # end-to-end pipeline driver
 │   └── modal_pretrain.py                # Modal GPU pretraining entrypoint
@@ -241,7 +242,6 @@ bawm/
 ├── checkpoints/                         # gitignored: trained encoders
 ├── results/<genome>/                    # gitignored: PAFs, metrics, plots
 ├── docs/
-│   ├── BAWM_Paper1_Implementation.docx
 │   ├── Research_Report.pdf
 │   ├── paper/                           # main.tex + references.bib
 │   └── legacy_toy/                      # original toy-genome paper draft + proofs
@@ -272,8 +272,8 @@ contribution, not a *method* about Bayesian machinery.
 ## Citation
 
 ```bibtex
-@article{bawm2026,
-  title  = {Calibrated Probabilistic Overlap Confidences for Long-Read Genome Assembly},
+@article{capo2026,
+  title  = {CAPO: Calibrated Posterior Probabilities for de novo Assembly Overlap Graphs},
   author = {Giddi, Raja and ...},
   year   = {2026},
   note   = {In preparation}

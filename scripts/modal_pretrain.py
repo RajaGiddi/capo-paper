@@ -28,7 +28,7 @@ image = (
 # ── Persistent volume (shared; per-genome subdirs) ──────────────────
 volume = modal.Volume.from_name("bawm-ecoli-vol", create_if_missing=True)
 
-app = modal.App("bawm-pretrain", image=image)
+app = modal.App("capo-pretrain", image=image)
 
 
 # ── Upload data to volume (local function) ──────────────────────────
@@ -37,7 +37,7 @@ def main(genome: str = "ecoli"):
     """Upload local data, run GPU pretraining, download checkpoint."""
     import sys
     sys.path.insert(0, str(PROJECT_ROOT / "src"))
-    from bawm.genomes import get as get_genome
+    from capo.genomes import get as get_genome
 
     cfg = get_genome(genome)
     print(f"Genome: {cfg.organism} ({cfg.name})")
@@ -50,7 +50,7 @@ def main(genome: str = "ecoli"):
     with volume.batch_upload(force=True) as batch:
         batch.put_file(cfg.reads, reads_rel)
         batch.put_file(cfg.edge_labels, labels_rel)
-        batch.put_file(PROJECT_ROOT / "src" / "bawm" / "models" / "encoder.py",
+        batch.put_file(PROJECT_ROOT / "src" / "capo" / "models" / "encoder.py",
                        "/code/encoder.py")
 
     print("Starting GPU training...")

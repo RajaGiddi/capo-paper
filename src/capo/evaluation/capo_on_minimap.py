@@ -1,18 +1,18 @@
 """
-BAWM as a calibrated scoring layer on top of minimap2 candidates.
+CAPO as a calibrated scoring layer on top of minimap2 candidates.
 
-Takes minimap2 ava-pb overlaps as the candidate set, computes BAWM
+Takes minimap2 ava-pb overlaps as the candidate set, computes CAPO
 features (containment, chain_coverage, cosine_sim) per candidate pair,
 fits the multi-feature Bayes-factor model from labels, and evaluates
 P / R / ECE over the full minimap2 candidate set.
 
 This is the paper's centerpiece experiment: rather than competing with
-minimap2 on candidate generation, we layer BAWM on top of it to provide
+minimap2 on candidate generation, we layer CAPO on top of it to provide
 what minimap2 lacks — calibrated probabilistic overlap confidences.
 
 Usage:
-    python -m bawm.evaluation.bawm_on_minimap --genome ecoli
-    python -m bawm.evaluation.bawm_on_minimap --genome bsubtilis
+    python -m capo.evaluation.capo_on_minimap --genome ecoli
+    python -m capo.evaluation.capo_on_minimap --genome bsubtilis
 """
 from __future__ import annotations
 
@@ -27,14 +27,14 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from Bio import SeqIO
-from bawm.genomes import get as get_genome
-from bawm.models.encoder import ReadEncoder, seq_to_tokens
-from bawm.models.features import (
+from capo.genomes import get as get_genome
+from capo.models.encoder import ReadEncoder, seq_to_tokens
+from capo.models.features import (
     extract_minimiser_positions,
     compute_chain_features,
     compute_containment,
 )
-from bawm.models.likelihood import (
+from capo.models.likelihood import (
     fit_multi_feature_model,
     compute_log_bayes_factor,
     print_model_summary,
@@ -240,7 +240,7 @@ def threshold_sweep(scores: np.ndarray, labels: np.ndarray,
 # ── Main ────────────────────────────────────────────────────────────
 
 def main():
-    ap = argparse.ArgumentParser(description="BAWM scoring over minimap2 candidates")
+    ap = argparse.ArgumentParser(description="CAPO scoring over minimap2 candidates")
     ap.add_argument("--genome", required=True)
     ap.add_argument("--fit-frac", type=float, default=0.3,
                     help="Fraction of pairs used to fit the BF model (rest is eval)")
@@ -386,7 +386,7 @@ def main():
     }
 
     suffix = "_no_copula" if args.no_copula else ""
-    out_path = cfg.results_dir / f"bawm_on_minimap{suffix}.json"
+    out_path = cfg.results_dir / f"capo_on_minimap{suffix}.json"
     with open(out_path, "w") as f:
         json.dump(out, f, indent=2)
     print(f"\nWrote {out_path}")

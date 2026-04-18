@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bawm"
+name = "capo"
 version = "0.1.0"
-description = "Calibrated probabilistic overlap confidences for long-read genome assembly."
+description = "CAPO: calibrated posterior probabilities for de novo assembly overlap graphs."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -32,12 +32,12 @@ gpu = ["modal>=0.60"]
 dev = ["pytest>=7", "ruff"]
 
 [project.urls]
-Homepage = "https://github.com/USER/bawm"
-Issues   = "https://github.com/USER/bawm/issues"
+Homepage = "https://github.com/USER/capo"
+Issues   = "https://github.com/USER/capo/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["bawm*"]
+include = ["capo*"]
 
 [tool.ruff]
 line-length = 100
