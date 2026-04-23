@@ -44,13 +44,12 @@ data/genes/scerevisiae/edge_labels.json
 data/genes/scerevisiae/read_positions.json
 data/genes/scerevisiae/ncbi_dataset/
 
-# Trained encoder checkpoints (~5 MB each; produced by scripts/modal_pretrain.py)
+# Trained encoder checkpoints (~5 MB each; produced by scripts/pretrain.py)
 checkpoints/*.pt
 
 # Experiment outputs (per-genome subdirs + any top-level artefacts)
 results/
 
-# Modal cache
-.modal/
-
 .docx
+
+docs/
