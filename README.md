@@ -55,7 +55,7 @@ flowchart LR
     A[Reference genome FASTA] --> B[Simulate HiFi reads<br/>30× coverage, 15kb mean]
     B --> C[Ground-truth labels<br/>spatial bin index]
     B --> D[minimap2 ava-pb<br/>all-vs-all overlaps]
-    B --> E[Contrastive encoder<br/>InfoNCE pretraining on Modal GPU]
+    B --> E[Contrastive encoder<br/>InfoNCE pretraining, local GPU]
 
     D --> F[Candidate pair set<br/>~400k pairs / genome]
     E --> G[Per-read latent μ ∈ ℝ⁶⁴]
@@ -93,8 +93,12 @@ probability trained against the simulator's ground truth.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[gpu]"            # installs `capo` package + Modal extras
+pip install -e .
 ```
+
+PyTorch will automatically use your local hardware (CUDA GPU, Apple Silicon
+MPS, or CPU fallback) for the contrastive encoder pretraining step; there
+is no cloud dependency.
 
 After install, every module is importable as `from capo.X import ...` and
 every script is runnable as `python -m capo.<module> ...`.
@@ -125,22 +129,28 @@ FASTAs are not committed. Download from NCBI and place at
 | bsubtilis   | NC_000964.3       | https://www.ncbi.nlm.nih.gov/nuccore/NC_000964.3 |
 | scerevisiae | GCF_000146045.2   | https://www.ncbi.nlm.nih.gov/datasets/genome/GCF_000146045.2/ |
 
-### Modal (only needed for GPU pretraining)
+### Encoder pretraining
+
+The contrastive read encoder is pretrained per genome with
+`scripts/pretrain.py`. It auto-selects the best available device
+(CUDA > MPS > CPU):
 
 ```bash
-pip install modal
-modal token new
+python scripts/pretrain.py --genome ecoli
+python scripts/pretrain.py --genome bsubtilis --epochs 30
+python scripts/pretrain.py --genome toy --batch-size 4      # CPU-friendly
 ```
 
-The pretraining script uses a Modal volume named `bawm-ecoli-vol` (legacy
-name retained from earlier iterations so existing remote checkpoints aren't
-orphaned).
+Rough wall-clock expectations for the default 30-epoch schedule:
+NVIDIA A10G / A100 ~2 h, Apple Silicon MPS ~6--8 h, CPU ~1--2 days
+(not recommended except for the toy genome). Checkpoints land at
+`checkpoints/encoder_<genome>.pt`.
 
 ---
 
 ## Use case: reproducing the paper
 
-### Smoke test on the toy genome (no Modal needed)
+### Smoke test on the toy genome
 
 ```bash
 bash scripts/run_genome.sh toy eda
@@ -158,9 +168,10 @@ bash scripts/run_genome.sh ecoli all
 bash scripts/run_genome.sh bsubtilis all
 ```
 
-Each `all` run executes: `eda → simulate → pretrain (Modal GPU) →
-infer → eval`, taking ~30 min per genome end-to-end excluding pretraining
-(~2 h on an A10G).
+Each `all` run executes: `eda → simulate → pretrain (local GPU) →
+infer → eval`. Wall clock depends on your hardware — pretraining is the
+long pole (see the pretraining section above for per-device estimates);
+everything else runs in ~30 min per genome on a laptop.
 
 ### Headline experiment only (the table above)
 
@@ -233,7 +244,7 @@ capo/
 │       └── capo_on_minimap.py           # main paper experiment (BF + LogReg)
 ├── scripts/
 │   ├── run_genome.sh                    # end-to-end pipeline driver
-│   └── modal_pretrain.py                # Modal GPU pretraining entrypoint
+│   └── pretrain.py                      # local GPU/MPS/CPU pretraining
 ├── data/genes/
 │   ├── toy/                             # synthetic genome, shipped (smoke test)
 │   ├── ecoli/                           # gitignored, see Setup
