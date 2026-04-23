@@ -8,10 +8,8 @@ version = "0.1.0"
 description = "CAPO: calibrated posterior probabilities for de novo assembly overlap graphs."
 readme = "README.md"
 requires-python = ">=3.10"
-authors = [
-    { name = "Raja Giddi", email = "REDACTED" },
-]
-license = { text = "TBD" }
+authors = [{ name = "Raja Giddi" }]
+license = { text = "MIT" }
 keywords = ["genome-assembly", "long-read", "minimap2", "bayesian", "calibration"]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -28,7 +26,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gpu = ["modal>=0.60"]
 dev = ["pytest>=7", "ruff"]
 
 [project.urls]
