@@ -14,7 +14,7 @@
 #
 # Prerequisites:
 #   - The genome's FASTA at data/genes/<name>/genome.fasta
-#   - For pretrain stage: Modal CLI configured (modal token set)
+#   - For pretrain stage: PyTorch installed (CUDA, MPS, or CPU all supported)
 
 set -e
 
@@ -41,8 +41,8 @@ run_simulate() {
 
 run_pretrain() {
     echo ''
-    echo '[Pretrain] Contrastive encoder on GPU...'
-    modal run scripts/modal_pretrain.py --genome "$GENOME"
+    echo '[Pretrain] Contrastive encoder (CUDA > MPS > CPU auto-select)...'
+    python scripts/pretrain.py --genome "$GENOME"
 }
 
 run_infer() {
