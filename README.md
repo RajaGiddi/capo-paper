@@ -293,4 +293,4 @@ contribution, not a *method* about Bayesian machinery.
 
 ## License
 
-TBD.
+MIT License
