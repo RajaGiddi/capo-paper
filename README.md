@@ -285,7 +285,7 @@ contribution, not a *method* about Bayesian machinery.
 ```bibtex
 @article{capo2026,
   title  = {CAPO: Calibrated Posterior Probabilities for de novo Assembly Overlap Graphs},
-  author = {Giddi, Raja and ...},
+  author = {Giddi, Raja},
   year   = {2026},
   note   = {In preparation}
 }
